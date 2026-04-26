@@ -10,9 +10,19 @@ export type PromptNodeData = {
   onChange: (id: string, text: string) => void;
 };
 
+export type ReferenceMention = {
+  id: string;
+  label: string;
+  mention: string;
+  thumbnail: string | null;
+};
+
 export type GenerateNodeData = {
+  prompt: string;
   status: "idle" | "running" | "done" | "error";
   resultUrl: string | null;
   error: string | null;
+  references: ReferenceMention[];
+  onPromptChange: (id: string, text: string) => void;
   onRun: (id: string) => void;
 };
