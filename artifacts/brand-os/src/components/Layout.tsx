@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Sparkles, PlusCircle, Menu, X, BarChart3,
-  Library, LayoutTemplate, ShieldCheck, ChevronRight, Bell, Moon, Sun, CalendarDays, LogOut,
+  Library, LayoutTemplate, ShieldCheck, ChevronRight, Bell, Moon, Sun, CalendarDays, LogOut, Workflow,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { getGetDashboardSummaryQueryKey, getListBrandsQueryKey } from "@workspac
 
 function buildNavSections(isAdmin: boolean, features: { analytics: boolean; templates: boolean; socialPublishing: boolean }) {
   const tools = [
+    { href: "/nodes", label: "Nodes", icon: Workflow },
     { href: "/calendar", label: "Content Calendar", icon: CalendarDays },
     { href: "/assets", label: "Asset Library", icon: Library },
   ];

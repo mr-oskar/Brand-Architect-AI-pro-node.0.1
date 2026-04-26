@@ -9,6 +9,7 @@ import socialRouter from "./social";
 import jobsRouter from "./jobs";
 import imagesRouter from "./images";
 import designsRouter from "./designs";
+import nodesRouter from "./nodes";
 import adminRouter, { publicSettingsRouter } from "./admin";
 import adminPlatformRouter from "./admin-platform";
 
@@ -24,6 +25,7 @@ router.use(socialRouter);
 router.use(jobsRouter);
 router.use(imagesRouter);
 router.use(designsRouter);
+router.use(nodesRouter);
 router.use(publicSettingsRouter);
 router.use(adminRouter);
 router.use(adminPlatformRouter);

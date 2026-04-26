@@ -26,6 +26,7 @@ const Assets = lazy(() => import("@/pages/Assets"));
 const Templates = lazy(() => import("@/pages/Templates"));
 const Admin = lazy(() => import("@/pages/Admin"));
 const SocialAccounts = lazy(() => import("@/pages/SocialAccounts"));
+const NodesEditor = lazy(() => import("@/pages/NodesEditor"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const SignIn = lazy(() => import("@/pages/SignIn"));
@@ -84,6 +85,7 @@ function ProtectedAppShell() {
       <Switch>
         <Route path="/brands/:id/design" component={BrandDesignStudio} />
         <Route path="/brands/:id/book" component={BrandBook} />
+        <Route path="/nodes" component={NodesEditor} />
         <Route>
           <Layout>
             <Suspense fallback={<PageLoader />}>

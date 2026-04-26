@@ -44,6 +44,7 @@ Cloned from https://github.com/mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3
 
 ## Recent significant changes
 
+- 2026-04-26 — Added Krea-style **Nodes** visual editor at `/nodes` (image references → prompt → AI image generation). Backend route `POST /api/nodes/generate-image` charges credits via `design.generate-image` and uses `generateImageWithReferences`. Frontend uses `@xyflow/react` with custom nodes (`ImageInputNode`, `PromptNode`, `GenerateImageNode`). Sidebar link added to Tools section.
 - 2026-04-26 — Added comprehensive `DOCUMENTATION.md` (Arabic, full feature/architecture docs) and `AGENTS.md` (instructions for AI agents).
 - 2026-04-26 — Fixed GitHub remote URL (was pointing to non-existent `oskar-77/...`); configured persistent credential storage.
 - 2026-04-26 — Unified error notification system in `artifacts/brand-os/src/lib/apiError.ts` (`extractApiError` / `notifyError` / `notifySuccess`); wired into BrandDesignStudio, CampaignWorkspace, BrandKit.
