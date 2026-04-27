@@ -5,7 +5,8 @@ export type NodeKind =
   | "prompt"
   | "generateImage"
   | "settings"
-  | "styleExtractor";
+  | "styleExtractor"
+  | "brandKit";
 
 export type GenerateNodeSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
 export type GenerateNodeQuality = "low" | "medium" | "high" | "auto";
@@ -50,6 +51,8 @@ export type GenerateNodeData = {
   label?: string;
   /** Settings inherited from a connected SettingsNode (display only — backend resolves). */
   inheritedSettings?: SettingsNodeData | null;
+  /** Brand identity inherited from a connected BrandKitNode (display only). */
+  inheritedBrand?: BrandFull | null;
   onPromptChange: (id: string, text: string) => void;
   onRun: (id: string) => void;
 };
@@ -80,6 +83,62 @@ export type StyleExtractorNodeData = {
   sourceLabel: string | null;
   onExtract: (id: string) => void;
   onTextChange: (id: string, text: string) => void;
+};
+
+/** A single brand returned by GET /api/brands (list endpoint). */
+export type BrandSummary = {
+  id: number;
+  companyName: string;
+  industry: string | null;
+  logoUrl: string | null;
+  status?: string;
+};
+
+/** Color palette as stored in brand.brandKit. */
+export type BrandColorPalette = {
+  primary?: string;
+  secondary?: string;
+  accent?: string;
+  background?: string;
+  text?: string;
+  neutral?: string;
+};
+
+/** Subset of the brand_kit jsonb we use in the node. Other fields are tolerated. */
+export type BrandKitPayload = {
+  personality?: string;
+  positioning?: string;
+  toneOfVoice?: string;
+  audienceSegments?: string[];
+  visualStyle?: string;
+  visualStyleRules?: string;
+  colorPalette?: BrandColorPalette;
+  taglines?: string[];
+  brandKeywords?: string[];
+  messagingPillars?: string[];
+  dosCommunication?: string[];
+  dontsCommunication?: string[];
+  typographyRecommendations?: string;
+  missionStatement?: string;
+  visionStatement?: string;
+};
+
+/** Full brand returned by GET /api/brands/:id. */
+export type BrandFull = {
+  id: number;
+  companyName: string;
+  industry: string | null;
+  companyDescription?: string | null;
+  websiteUrl?: string | null;
+  logoUrl: string | null;
+  brandKit: BrandKitPayload | null;
+};
+
+export type BrandKitNodeData = {
+  label: string;
+  brandId: number | null;
+  /** Snapshot of the selected brand so the node renders even before refetching. */
+  brandSnapshot: BrandFull | null;
 };
 
 export type WorkspaceState = {

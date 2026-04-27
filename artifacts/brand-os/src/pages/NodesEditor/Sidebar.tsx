@@ -25,6 +25,8 @@ import {
   SlidersHorizontal,
   Palette,
   Upload,
+  Briefcase,
+  RefreshCw,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
@@ -37,6 +39,7 @@ import type {
   PromptNodeData,
   SettingsNodeData,
   StyleExtractorNodeData,
+  BrandKitNodeData,
 } from "./types";
 
 type SidebarSection = "workspaces" | "palette" | "inspector";
@@ -57,6 +60,7 @@ export type SidebarProps = {
   onAddPrompt: () => void;
   onAddGenerate: () => void;
   onAddSettings: () => void;
+  onAddBrandKit: () => void;
   onAddStyleExtractor: () => void;
   onResetCanvas: () => void;
 
@@ -381,6 +385,14 @@ export default function Sidebar(props: SidebarProps) {
                   testId="button-add-settings-node"
                 />
                 <PaletteButton
+                  onClick={props.onAddBrandKit}
+                  dot="bg-orange-300 shadow-[0_0_8px_2px_rgba(251,146,60,0.45)]"
+                  icon={<Briefcase className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
+                  title="Brand kit"
+                  description="Apply a saved brand identity"
+                  testId="button-add-brandkit-node"
+                />
+                <PaletteButton
                   onClick={props.onAddStyleExtractor}
                   dot="bg-fuchsia-300 shadow-[0_0_8px_2px_rgba(240,171,252,0.45)]"
                   icon={<Palette className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
@@ -556,6 +568,7 @@ function InspectorPanel({
       {node.type === "generateImage" && <GenerateNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "settings" && <SettingsNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "styleExtractor" && <StyleExtractorNodeInspector node={node} onUpdate={onUpdate} />}
+      {node.type === "brandKit" && <BrandKitNodeInspector node={node} onUpdate={onUpdate} />}
 
       {/* Position */}
       <div className="border-t border-white/[0.05] pt-3">
@@ -640,6 +653,8 @@ function NodeKindBadge({ type }: { type?: string }) {
       return { Icon: SlidersHorizontal, dot: "bg-emerald-300 shadow-[0_0_6px_1px_rgba(110,231,183,0.45)]" };
     if (type === "styleExtractor")
       return { Icon: Palette, dot: "bg-fuchsia-300 shadow-[0_0_6px_1px_rgba(240,171,252,0.45)]" };
+    if (type === "brandKit")
+      return { Icon: Briefcase, dot: "bg-orange-300 shadow-[0_0_6px_1px_rgba(251,146,60,0.45)]" };
     return { Icon: Layers, dot: "bg-white/30" };
   })();
   const { Icon, dot } = conf;
@@ -660,6 +675,8 @@ function nodeTitle(node: Node): string {
     return ((node.data as SettingsNodeData).label as string) || "Settings";
   if (node.type === "styleExtractor")
     return ((node.data as StyleExtractorNodeData).label as string) || "Style extractor";
+  if (node.type === "brandKit")
+    return ((node.data as BrandKitNodeData).label as string) || "Brand kit";
   return node.type ?? "Node";
 }
 
@@ -1103,6 +1120,117 @@ function StyleExtractorNodeInspector({
         Status: <span className="font-mono text-foreground/80">{d.status ?? "idle"}</span>
         {d.error && <div className="text-red-300/85 mt-0.5">{d.error}</div>}
       </div>
+    </div>
+  );
+}
+
+function BrandKitNodeInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const d = node.data as BrandKitNodeData;
+  const snap = d.brandSnapshot;
+  const palette = snap?.brandKit?.colorPalette;
+  const swatches = palette
+    ? [
+        palette.primary,
+        palette.secondary,
+        palette.accent,
+        palette.background,
+        palette.text,
+        palette.neutral,
+      ].filter((c): c is string => typeof c === "string" && c.length > 0)
+    : [];
+  return (
+    <div className="space-y-2">
+      <Field label="Label">
+        <input
+          value={d.label ?? ""}
+          onChange={(e) => onUpdate(node.id, { label: e.target.value })}
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20"
+          data-testid="inspector-brandkit-label"
+        />
+      </Field>
+
+      {!snap && (
+        <div className="text-[10px] text-foreground/60 leading-relaxed bg-white/[0.02] border border-white/[0.05] rounded-md px-2 py-1.5">
+          Pick a brand on the node to load its identity.
+        </div>
+      )}
+
+      {snap && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-2">
+            {snap.logoUrl ? (
+              <div className="w-10 h-10 rounded-md bg-white/90 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                <img src={snap.logoUrl} alt="" className="max-w-full max-h-full object-contain" />
+              </div>
+            ) : (
+              <div className="w-10 h-10 rounded-md bg-white/[0.04] border border-white/10 flex items-center justify-center flex-shrink-0">
+                <Briefcase className="w-4 h-4 text-foreground/55" strokeWidth={1.5} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-medium text-foreground/95 truncate">
+                {snap.companyName}
+              </div>
+              {snap.industry && (
+                <div className="text-[10px] text-foreground/55 truncate">{snap.industry}</div>
+              )}
+            </div>
+          </div>
+
+          {swatches.length > 0 && (
+            <div>
+              <div className="text-[9px] uppercase tracking-wider text-foreground/55 font-semibold mb-1">
+                Palette
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {swatches.map((c, i) => (
+                  <div
+                    key={`${c}-${i}`}
+                    className="w-6 h-6 rounded-md border border-white/15"
+                    style={{ backgroundColor: c }}
+                    title={c}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {snap.brandKit?.toneOfVoice && (
+            <Field label="Tone of voice">
+              <div className="text-[10.5px] text-foreground/85 leading-relaxed">
+                {snap.brandKit.toneOfVoice}
+              </div>
+            </Field>
+          )}
+
+          {snap.brandKit?.taglines && snap.brandKit.taglines.length > 0 && (
+            <Field label="Taglines">
+              <ul className="text-[10.5px] text-foreground/85 space-y-0.5 list-disc pl-3.5">
+                {snap.brandKit.taglines.slice(0, 4).map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ul>
+            </Field>
+          )}
+
+          {!snap.brandKit && (
+            <div className="text-[10px] text-amber-200/85 bg-amber-400/[0.08] border border-amber-400/20 rounded-md px-2 py-1.5">
+              This brand has no kit generated yet. Open it in the Brands page to generate one.
+            </div>
+          )}
+
+          <div className="text-[9.5px] text-foreground/55 leading-relaxed pt-1 flex items-center gap-1">
+            <RefreshCw className="w-2.5 h-2.5" /> Use the refresh icon on the node to re-pull
+            this brand's data.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

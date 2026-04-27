@@ -27,12 +27,14 @@ import {
   Sparkles,
   SlidersHorizontal,
   Palette,
+  Briefcase,
 } from "lucide-react";
 import { Link } from "wouter";
 import ImageInputNode from "./ImageInputNode";
 import PromptNode from "./PromptNode";
 import GenerateImageNode from "./GenerateImageNode";
 import SettingsNode from "./SettingsNode";
+import BrandKitNode from "./BrandKitNode";
 import StyleExtractorNode from "./StyleExtractorNode";
 import Sidebar from "./Sidebar";
 import CanvasControls from "./CanvasControls";
@@ -40,6 +42,8 @@ import { notifyError, notifySuccess } from "@/lib/apiError";
 import type {
   GenerateModel,
   GenerateNodeBackground,
+  BrandFull,
+  BrandKitNodeData,
   GenerateNodeData,
   GenerateNodeQuality,
   GenerateNodeSize,
@@ -176,6 +180,9 @@ function NodesEditorInner() {
 
     if (sourceHandle === "settings" || targetHandle === "settings") {
       return sourceHandle === "settings" && targetHandle === "settings";
+    }
+    if (sourceHandle === "brand" || targetHandle === "brand") {
+      return sourceHandle === "brand" && targetHandle === "brand";
     }
     if (sourceHandle === "prompt") return targetHandle === "prompt";
     if (sourceHandle === "image") return targetHandle === "references" || targetHandle === "image";
@@ -346,6 +353,19 @@ function NodesEditorInner() {
     return map;
   }, [nodes, edges]);
 
+  // ===== Brand identity inherited per node (from a BrandKitNode via the "brand" handle) =====
+  const brandByTargetId = useMemo(() => {
+    const map = new Map<string, BrandFull>();
+    for (const e of edges) {
+      if (e.sourceHandle !== "brand" || e.targetHandle !== "brand") continue;
+      const src = nodes.find((x) => x.id === e.source);
+      if (!src || src.type !== "brandKit") continue;
+      const snap = (src.data as BrandKitNodeData).brandSnapshot;
+      if (snap) map.set(e.target, snap);
+    }
+    return map;
+  }, [nodes, edges]);
+
   // ===== Source image per StyleExtractor node (incoming on "image" handle) =====
   const styleExtractorSourceByNodeId = useMemo(() => {
     const map = new Map<string, { dataUrl: string | null; label: string | null; ready: boolean }>();
@@ -477,6 +497,28 @@ function NodesEditorInner() {
 
       if (settingsRefDataUrl) resolved.push(settingsRefDataUrl);
 
+      // Brand identity (from a BrandKitNode wired into "brand"). Resolved separately
+      // so we can prepend identity instructions and attach the brand logo.
+      const brand = brandByTargetId.get(genNodeId) ?? null;
+      if (brand?.logoUrl) {
+        try {
+          const cache = dataUrlCache.current;
+          let logoData = cache.get(brand.logoUrl);
+          if (!logoData) {
+            logoData = brand.logoUrl.startsWith("data:image/")
+              ? Promise.resolve(brand.logoUrl)
+              : urlToDataUrl(brand.logoUrl).catch((err) => {
+                  cache.delete(brand.logoUrl as string);
+                  throw err;
+                });
+            cache.set(brand.logoUrl, logoData);
+          }
+          resolved.push(await logoData);
+        } catch {
+          // If the logo can't be loaded, continue with the rest of the brand kit.
+        }
+      }
+
       // Inputs on the generate node's "prompt" handle:
       // - Prompt nodes contribute the user's CONTENT request (subject, action, scene)
       // - StyleExtractor nodes contribute a STYLE LAYER that is applied without
@@ -526,10 +568,52 @@ function NodesEditorInner() {
         return;
       }
 
-      // Compose: settings prefix → settings text reference → user content → style layer.
-      // The style layer is added LAST and explicitly told not to override the subject,
-      // so the StyleExtractor adapts cleanly when the user also wires up prompt + refs.
+      // Compose: brand identity → settings prefix → settings text reference → user content → style layer.
+      // Brand identity comes FIRST so the model anchors on it. The style layer is added
+      // LAST and explicitly told not to override the subject, so the StyleExtractor
+      // adapts cleanly when the user also wires up prompt + refs.
       const sections: string[] = [];
+      if (brand) {
+        const lines: string[] = [];
+        lines.push(`Brand: ${brand.companyName}${brand.industry ? ` (${brand.industry})` : ""}`);
+        const kit = brand.brandKit;
+        if (kit?.toneOfVoice) lines.push(`Tone of voice: ${kit.toneOfVoice}`);
+        if (kit?.personality) lines.push(`Personality: ${kit.personality}`);
+        if (kit?.visualStyle) lines.push(`Visual style: ${kit.visualStyle}`);
+        if (kit?.visualStyleRules) lines.push(`Visual rules: ${kit.visualStyleRules}`);
+        const palette = kit?.colorPalette;
+        if (palette) {
+          const swatches = [
+            palette.primary && `primary ${palette.primary}`,
+            palette.secondary && `secondary ${palette.secondary}`,
+            palette.accent && `accent ${palette.accent}`,
+            palette.background && `background ${palette.background}`,
+            palette.text && `text ${palette.text}`,
+            palette.neutral && `neutral ${palette.neutral}`,
+          ].filter(Boolean);
+          if (swatches.length > 0) lines.push(`Color palette: ${swatches.join(", ")}`);
+        }
+        if (kit?.taglines && kit.taglines.length > 0) {
+          lines.push(`Taglines (do not place text in image unless asked): ${kit.taglines.slice(0, 3).join(" | ")}`);
+        }
+        if (kit?.brandKeywords && kit.brandKeywords.length > 0) {
+          lines.push(`Brand keywords: ${kit.brandKeywords.slice(0, 8).join(", ")}`);
+        }
+        if (kit?.dosCommunication && kit.dosCommunication.length > 0) {
+          lines.push(`Do: ${kit.dosCommunication.slice(0, 5).join("; ")}`);
+        }
+        if (kit?.dontsCommunication && kit.dontsCommunication.length > 0) {
+          lines.push(`Don't: ${kit.dontsCommunication.slice(0, 5).join("; ")}`);
+        }
+        if (brand.logoUrl) {
+          lines.push(
+            `The brand logo is attached as the LAST reference image — match its colors, geometry and proportions exactly when the logo appears in the composition.`,
+          );
+        }
+        sections.push(
+          `Brand identity (anchor every visual choice to this — palette, mood, voice, do/don'ts):\n${lines.join("\n")}`,
+        );
+      }
       if (inh?.unifiedPrompt?.trim()) sections.push(inh.unifiedPrompt.trim());
       if (inh?.textReference?.trim()) sections.push(`Style / brand reference:\n${inh.textReference.trim()}`);
       sections.push(styleOnlyMode ? prompt : `User request:\n${prompt}`);
@@ -581,7 +665,7 @@ function NodesEditorInner() {
         notifyError("Connection failed", err, msg);
       }
     },
-    [edges, nodes, referencesByGenId, settingsByTargetId, updateNodeData],
+    [edges, nodes, referencesByGenId, settingsByTargetId, brandByTargetId, updateNodeData],
   );
 
   // ===== Run a Style Extractor =====
@@ -699,10 +783,17 @@ function NodesEditorInner() {
             ...common,
             references: referencesByGenId.get(n.id) ?? [],
             inheritedSettings: settingsByTargetId.get(n.id) ?? null,
+            inheritedBrand: brandByTargetId.get(n.id) ?? null,
             onPromptChange: handleGeneratePromptChange,
             onRun: runGenerate,
             onSettingsChange: updateNodeData,
           },
+        };
+      }
+      if (n.type === "brandKit") {
+        return {
+          ...n,
+          data: { ...n.data, ...common, onChange: updateNodeData },
         };
       }
       if (n.type === "settings") {
@@ -731,6 +822,7 @@ function NodesEditorInner() {
     nodes,
     referencesByGenId,
     settingsByTargetId,
+    brandByTargetId,
     styleExtractorSourceByNodeId,
     inheritedRefsByPromptId,
     handleImageChange,
@@ -752,6 +844,7 @@ function NodesEditorInner() {
       generateImage: GenerateImageNode,
       settings: SettingsNode,
       styleExtractor: StyleExtractorNode,
+      brandKit: BrandKitNode,
     }),
     [],
   );
@@ -842,6 +935,23 @@ function NodesEditorInner() {
           textReference: "",
           unifiedPrompt: "",
         } as SettingsNodeData,
+      });
+    },
+    [insertNode],
+  );
+
+  const addBrandKitNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("brand");
+      insertNode({
+        id,
+        type: "brandKit",
+        position: at ?? { x: 80 + Math.random() * 60, y: 460 + Math.random() * 80 },
+        data: {
+          label: "Brand Kit",
+          brandId: null,
+          brandSnapshot: null,
+        } as BrandKitNodeData,
       });
     },
     [insertNode],
@@ -1095,6 +1205,13 @@ function NodesEditorInner() {
         add: addSettingsNode,
       },
       {
+        key: "brandKit",
+        label: "Brand Kit",
+        icon: Briefcase,
+        accentClass: "text-orange-300",
+        add: addBrandKitNode,
+      },
+      {
         key: "styleExtractor",
         label: "Style Extractor",
         icon: Palette,
@@ -1107,6 +1224,7 @@ function NodesEditorInner() {
       addPromptNode,
       addGenerateNode,
       addSettingsNode,
+      addBrandKitNode,
       addStyleExtractorNode,
     ],
   );
@@ -1173,6 +1291,7 @@ function NodesEditorInner() {
           onAddPrompt={addPromptNode}
           onAddGenerate={addGenerateNode}
           onAddSettings={addSettingsNode}
+          onAddBrandKit={addBrandKitNode}
           onAddStyleExtractor={addStyleExtractorNode}
           onResetCanvas={resetCanvas}
           selectedNode={selectedNode}

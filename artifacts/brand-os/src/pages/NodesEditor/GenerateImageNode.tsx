@@ -23,6 +23,7 @@ import {
   Wand2,
 } from "lucide-react";
 import type {
+  BrandFull,
   GenerateModel,
   GenerateNodeBackground,
   GenerateNodeData,
@@ -87,6 +88,7 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
     model: raw.model ?? "auto",
     label: raw.label ?? "Generate",
     inheritedSettings: raw.inheritedSettings ?? null,
+    inheritedBrand: raw.inheritedBrand ?? null,
     onPromptChange: raw.onPromptChange ?? (() => {}),
     onRun: raw.onRun ?? (() => {}),
   };
@@ -96,6 +98,7 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
 
   // Effective settings (settings node overrides local)
   const inh: SettingsNodeData | null = d.inheritedSettings ?? null;
+  const inhBrand: BrandFull | null = d.inheritedBrand ?? null;
   const effSize = inh?.size ?? d.size ?? "1024x1024";
   const effQuality = inh?.quality ?? d.quality ?? "auto";
   const effBackground = inh?.background ?? d.background ?? "auto";
@@ -212,21 +215,28 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
           position={Position.Left}
           id="references"
           className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-sky-400 hover:!w-3 hover:!h-3 transition-all"
-          style={{ top: "20%" }}
+          style={{ top: "18%" }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="prompt"
           className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-amber-300 hover:!w-3 hover:!h-3 transition-all"
-          style={{ top: "55%" }}
+          style={{ top: "44%" }}
+        />
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="brand"
+          className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-orange-300 hover:!w-3 hover:!h-3 transition-all"
+          style={{ top: "68%" }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="settings"
           className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-emerald-300 hover:!w-3 hover:!h-3 transition-all"
-          style={{ top: "85%" }}
+          style={{ top: "90%" }}
         />
 
         {/* Header */}
@@ -248,6 +258,22 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
               </TooltipTrigger>
               <TooltipContent>
                 Settings inherited from "{inh.label}"
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {inhBrand && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex items-center gap-0.5 text-[9px] font-medium text-orange-300 bg-orange-300/10 border border-orange-300/30 rounded px-1 py-0.5"
+                  data-testid={`generate-inherited-brand-badge-${id}`}
+                >
+                  <Briefcase className="w-2 h-2" />
+                  <span>BRAND</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Brand identity from "{inhBrand.companyName}"
               </TooltipContent>
             </Tooltip>
           )}
