@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import {
-  ImagePlus,
+  Image as ImageIcon,
   FileText,
   Sparkles,
   Trash2,
   RotateCcw,
   ChevronLeft,
-  ChevronRight,
   Plus,
   Pencil,
   Check,
@@ -19,9 +18,20 @@ import {
   Settings2,
   Folder,
   Loader2,
+  Square,
+  RectangleVertical,
+  RectangleHorizontal,
+  Wand2,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { GenerateNodeSize, ImageNodeData, GenerateNodeData, PromptNodeData } from "./types";
+import type {
+  GenerateNodeBackground,
+  GenerateNodeData,
+  GenerateNodeQuality,
+  GenerateNodeSize,
+  ImageNodeData,
+  PromptNodeData,
+} from "./types";
 
 type SidebarSection = "workspaces" | "palette" | "inspector";
 
@@ -58,22 +68,20 @@ export default function Sidebar(props: SidebarProps) {
   const [draftName, setDraftName] = useState("");
   const renameRef = useRef<HTMLInputElement>(null);
 
-  // Auto-switch to inspector when a node is selected
   useEffect(() => {
     if (props.selectedNode) setSection("inspector");
   }, [props.selectedNode?.id]);
 
   useEffect(() => {
-    if (renamingId) {
+    if (renamingId || creatingNew) {
       renameRef.current?.focus();
       renameRef.current?.select();
     }
-  }, [renamingId]);
+  }, [renamingId, creatingNew]);
 
   const startNew = () => {
     setCreatingNew(true);
     setDraftName("Untitled project");
-    setTimeout(() => renameRef.current?.focus(), 10);
   };
   const commitNew = () => {
     const n = draftName.trim() || "Untitled project";
@@ -96,154 +104,102 @@ export default function Sidebar(props: SidebarProps) {
 
   if (props.collapsed) {
     return (
-      <div className="h-full w-12 flex flex-col items-center gap-1.5 py-3 border-r border-border bg-card/50 backdrop-blur z-20">
+      <div className="h-full w-12 flex flex-col items-center gap-1 py-3 border-r border-white/[0.06] bg-[#0d0f15]/85 backdrop-blur-xl z-20">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               onClick={props.onToggleCollapsed}
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground/80 hover:text-foreground hover:bg-white/5 transition-colors"
               data-testid="button-sidebar-expand"
             >
-              <PanelLeft className="w-4 h-4" />
+              <PanelLeft className="w-4 h-4" strokeWidth={1.5} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">Expand sidebar</TooltipContent>
+          <TooltipContent side="right">Expand</TooltipContent>
         </Tooltip>
-        <div className="w-7 h-px bg-border my-1" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => {
-                props.onToggleCollapsed();
-                setSection("workspaces");
-              }}
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              data-testid="button-sidebar-workspaces"
-            >
-              <FolderKanban className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Workspaces</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => {
-                props.onToggleCollapsed();
-                setSection("palette");
-              }}
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              data-testid="button-sidebar-palette"
-            >
-              <Layers className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Add nodes</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => {
-                props.onToggleCollapsed();
-                setSection("inspector");
-              }}
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              data-testid="button-sidebar-inspector"
-            >
-              <Settings2 className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Inspector</TooltipContent>
-        </Tooltip>
+        <div className="w-7 h-px bg-white/[0.06] my-1" />
+        {(
+          [
+            { key: "workspaces", Icon: FolderKanban, label: "Projects" },
+            { key: "palette", Icon: Layers, label: "Add" },
+            { key: "inspector", Icon: Settings2, label: "Inspector" },
+          ] as const
+        ).map(({ key, Icon, label }) => (
+          <Tooltip key={key}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  props.onToggleCollapsed();
+                  setSection(key);
+                }}
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground/80 hover:text-foreground hover:bg-white/5 transition-colors"
+                data-testid={`button-sidebar-${key}`}
+              >
+                <Icon className="w-4 h-4" strokeWidth={1.5} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="h-full w-72 flex flex-col border-r border-border bg-card/50 backdrop-blur z-20">
-      {/* Section tabs */}
-      <div className="flex items-center gap-0.5 p-1.5 border-b border-border">
-        <Tooltip>
-          <TooltipTrigger asChild>
+    <div className="h-full w-72 flex flex-col border-r border-white/[0.06] bg-[#0d0f15]/85 backdrop-blur-xl z-20">
+      {/* Tab strip */}
+      <div className="flex items-center gap-0.5 p-2 border-b border-white/[0.05]">
+        <div className="flex-1 flex items-center gap-0.5 rounded-lg bg-white/[0.025] p-0.5">
+          {(
+            [
+              { key: "workspaces", Icon: FolderKanban, label: "Projects" },
+              { key: "palette", Icon: Layers, label: "Add" },
+              { key: "inspector", Icon: Settings2, label: "Inspect" },
+            ] as const
+          ).map(({ key, Icon, label }) => (
             <button
-              onClick={() => setSection("workspaces")}
-              className={`flex-1 h-8 rounded-md flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors ${
-                section === "workspaces"
-                  ? "bg-violet-500/15 text-violet-200"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+              key={key}
+              onClick={() => setSection(key)}
+              className={`flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-[10.5px] font-medium tracking-tight transition-all ${
+                section === key
+                  ? "bg-white/[0.06] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]"
+                  : "text-muted-foreground/75 hover:text-foreground"
               }`}
-              data-testid="tab-workspaces"
+              data-testid={`tab-${key}`}
             >
-              <FolderKanban className="w-3.5 h-3.5" />
-              <span>Projects</span>
+              <Icon className="w-3 h-3" strokeWidth={1.5} />
+              <span>{label}</span>
             </button>
-          </TooltipTrigger>
-          <TooltipContent>Projects</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setSection("palette")}
-              className={`flex-1 h-8 rounded-md flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors ${
-                section === "palette"
-                  ? "bg-violet-500/15 text-violet-200"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-              }`}
-              data-testid="tab-palette"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Add</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Add nodes</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setSection("inspector")}
-              className={`flex-1 h-8 rounded-md flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors ${
-                section === "inspector"
-                  ? "bg-violet-500/15 text-violet-200"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-              }`}
-              data-testid="tab-inspector"
-            >
-              <Settings2 className="w-3.5 h-3.5" />
-              <span>Inspector</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Selected node</TooltipContent>
-        </Tooltip>
+          ))}
+        </div>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               onClick={props.onToggleCollapsed}
-              className="w-8 h-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"
+              className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground/70 hover:text-foreground hover:bg-white/5 transition-colors"
               data-testid="button-sidebar-collapse"
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
+              <ChevronLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
             </button>
           </TooltipTrigger>
           <TooltipContent>Collapse</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Section content */}
+      {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {section === "workspaces" && (
           <div className="p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
-                Projects
-              </div>
+            <div className="flex items-center justify-between mb-1">
+              <SectionTitle>Projects</SectionTitle>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     onClick={startNew}
-                    className="w-6 h-6 rounded-md flex items-center justify-center text-violet-200 hover:text-white bg-violet-500/15 hover:bg-violet-500/30 border border-violet-500/30 transition-colors"
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-foreground/85 bg-white/[0.04] hover:bg-white/10 border border-white/[0.06] hover:border-white/15 transition-colors"
                     data-testid="button-create-workspace"
                   >
-                    <Plus className="w-3 h-3" />
+                    <Plus className="w-3 h-3" strokeWidth={1.75} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>New project</TooltipContent>
@@ -252,8 +208,8 @@ export default function Sidebar(props: SidebarProps) {
 
             <div className="space-y-1">
               {creatingNew && (
-                <div className="flex items-center gap-1 p-1.5 rounded-lg border border-violet-500/40 bg-violet-500/5">
-                  <Folder className="w-3.5 h-3.5 text-violet-300 flex-shrink-0" />
+                <div className="flex items-center gap-1.5 p-2 rounded-lg border border-[#7c5cff]/30 bg-[#7c5cff]/[0.08]">
+                  <Folder className="w-3.5 h-3.5 text-[#a78bfa] flex-shrink-0" strokeWidth={1.5} />
                   <input
                     ref={renameRef}
                     value={draftName}
@@ -270,7 +226,7 @@ export default function Sidebar(props: SidebarProps) {
                   />
                   <button
                     onClick={commitNew}
-                    className="w-5 h-5 rounded text-emerald-300 hover:bg-white/5"
+                    className="w-5 h-5 rounded text-emerald-300 hover:bg-white/5 flex items-center justify-center"
                   >
                     <Check className="w-3 h-3" />
                   </button>
@@ -279,7 +235,7 @@ export default function Sidebar(props: SidebarProps) {
                       setCreatingNew(false);
                       setDraftName("");
                     }}
-                    className="w-5 h-5 rounded text-muted-foreground hover:bg-white/5"
+                    className="w-5 h-5 rounded text-muted-foreground hover:bg-white/5 flex items-center justify-center"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -291,14 +247,17 @@ export default function Sidebar(props: SidebarProps) {
                 return (
                   <div
                     key={ws.id}
-                    className={`group flex items-center gap-1 p-1.5 rounded-lg border transition-colors ${
+                    className={`group flex items-center gap-1.5 p-2 rounded-lg border transition-colors ${
                       isCurrent
-                        ? "border-violet-500/40 bg-violet-500/10"
-                        : "border-transparent hover:bg-white/5 hover:border-white/5"
+                        ? "border-white/15 bg-white/[0.05]"
+                        : "border-transparent hover:bg-white/[0.03] hover:border-white/[0.06]"
                     }`}
                     data-testid={`workspace-${ws.id}`}
                   >
-                    <Folder className={`w-3.5 h-3.5 flex-shrink-0 ${isCurrent ? "text-violet-300" : "text-muted-foreground"}`} />
+                    <Folder
+                      className={`w-3.5 h-3.5 flex-shrink-0 ${isCurrent ? "text-[#a78bfa]" : "text-muted-foreground/70"}`}
+                      strokeWidth={1.5}
+                    />
                     {isRenaming ? (
                       <input
                         ref={renameRef}
@@ -318,7 +277,9 @@ export default function Sidebar(props: SidebarProps) {
                     ) : (
                       <button
                         onClick={() => props.onSwitchWorkspace(ws.id)}
-                        className={`flex-1 text-left text-[11.5px] truncate ${isCurrent ? "text-foreground font-medium" : "text-foreground/85"}`}
+                        className={`flex-1 text-left text-[11.5px] truncate tracking-tight ${
+                          isCurrent ? "text-foreground font-medium" : "text-foreground/85"
+                        }`}
                         data-testid={`button-switch-workspace-${ws.id}`}
                       >
                         {ws.name}
@@ -334,7 +295,7 @@ export default function Sidebar(props: SidebarProps) {
                               className="w-5 h-5 rounded text-muted-foreground hover:text-foreground hover:bg-white/10 flex items-center justify-center"
                               data-testid={`button-rename-workspace-${ws.id}`}
                             >
-                              <Pencil className="w-2.5 h-2.5" />
+                              <Pencil className="w-2.5 h-2.5" strokeWidth={1.5} />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent>Rename</TooltipContent>
@@ -346,7 +307,7 @@ export default function Sidebar(props: SidebarProps) {
                               className="w-5 h-5 rounded text-muted-foreground hover:text-foreground hover:bg-white/10 flex items-center justify-center"
                               data-testid={`button-duplicate-workspace-${ws.id}`}
                             >
-                              <Copy className="w-2.5 h-2.5" />
+                              <Copy className="w-2.5 h-2.5" strokeWidth={1.5} />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent>Duplicate</TooltipContent>
@@ -360,7 +321,7 @@ export default function Sidebar(props: SidebarProps) {
                               className="w-5 h-5 rounded text-muted-foreground hover:text-red-300 hover:bg-red-500/15 flex items-center justify-center"
                               data-testid={`button-delete-workspace-${ws.id}`}
                             >
-                              <Trash2 className="w-2.5 h-2.5" />
+                              <Trash2 className="w-2.5 h-2.5" strokeWidth={1.5} />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent>Delete</TooltipContent>
@@ -377,27 +338,28 @@ export default function Sidebar(props: SidebarProps) {
         {section === "palette" && (
           <div className="p-3 space-y-3">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1.5">
-                Add node
-              </div>
-              <div className="space-y-1.5">
+              <SectionTitle>Add node</SectionTitle>
+              <div className="space-y-1.5 mt-1.5">
                 <PaletteButton
                   onClick={props.onAddImage}
-                  icon={<ImagePlus className="w-4 h-4 text-cyan-300" />}
+                  dot="bg-sky-400 shadow-[0_0_8px_2px_rgba(56,189,248,0.45)]"
+                  icon={<ImageIcon className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
                   title="Image reference"
-                  description="Upload an image to use as a reference"
+                  description="Upload to use as a reference"
                   testId="button-add-image-node"
                 />
                 <PaletteButton
                   onClick={props.onAddPrompt}
-                  icon={<FileText className="w-4 h-4 text-amber-300" />}
+                  dot="bg-amber-300 shadow-[0_0_8px_2px_rgba(252,211,77,0.45)]"
+                  icon={<FileText className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
                   title="Instructions"
                   description="A reusable prompt block"
                   testId="button-add-prompt-node"
                 />
                 <PaletteButton
                   onClick={props.onAddGenerate}
-                  icon={<Sparkles className="w-4 h-4 text-violet-300" />}
+                  dot="bg-[#a78bfa] shadow-[0_0_8px_2px_rgba(167,139,250,0.45)]"
+                  icon={<Sparkles className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
                   title="Generate image"
                   description="Run AI to create an image"
                   testId="button-add-generate-node"
@@ -405,30 +367,36 @@ export default function Sidebar(props: SidebarProps) {
               </div>
             </div>
 
-            <div className="border-t border-border pt-3">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1.5">
-                Workflow
-              </div>
+            <div className="border-t border-white/[0.05] pt-3">
+              <SectionTitle>Workflow</SectionTitle>
               <button
                 onClick={() => {
-                  if (confirm("Reset this workspace? All nodes will be replaced with the starter graph.")) {
+                  if (confirm("Reset this workspace? Nodes will be replaced with the starter graph.")) {
                     props.onResetCanvas();
                   }
                 }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] text-foreground/85 hover:text-foreground hover:bg-white/5 transition-colors border border-border"
+                className="mt-1.5 w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-foreground/85 hover:text-foreground hover:bg-white/5 transition-colors border border-white/[0.06] hover:border-white/15"
                 data-testid="button-reset-canvas"
               >
-                <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
+                <RotateCcw className="w-3.5 h-3.5 text-muted-foreground/80" strokeWidth={1.5} />
                 <span>Reset workspace</span>
               </button>
             </div>
 
-            <div className="border-t border-border pt-3 text-[10px] text-muted-foreground/60 space-y-1 leading-relaxed">
-              <div className="font-semibold text-muted-foreground/80 mb-1">Tips</div>
-              <p>• Drag from a handle to connect nodes.</p>
-              <p>• Double-click an edge to delete it.</p>
-              <p>• Drag an edge endpoint off to disconnect.</p>
-              <p>• Press <kbd className="px-1 py-0.5 bg-white/5 border border-white/10 rounded text-[9px]">Delete</kbd> to remove a selected node.</p>
+            <div className="border-t border-white/[0.05] pt-3 text-[10px] text-muted-foreground/55 space-y-1 leading-relaxed">
+              <div className="font-semibold text-muted-foreground/80 mb-1 uppercase tracking-wider text-[9.5px]">
+                Tips
+              </div>
+              <p>· Drag from a handle to connect nodes.</p>
+              <p>· Double-click an edge to delete it.</p>
+              <p>· Drag an edge endpoint off to disconnect.</p>
+              <p>
+                · Press{" "}
+                <kbd className="px-1 py-0.5 bg-white/[0.06] border border-white/10 rounded text-[9px] font-mono">
+                  Del
+                </kbd>{" "}
+                to remove a selected node.
+              </p>
             </div>
           </div>
         )}
@@ -448,15 +416,25 @@ export default function Sidebar(props: SidebarProps) {
   );
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[9.5px] uppercase tracking-[0.08em] text-muted-foreground/55 font-semibold">
+      {children}
+    </div>
+  );
+}
+
 function PaletteButton({
   onClick,
   icon,
+  dot,
   title,
   description,
   testId,
 }: {
   onClick: () => void;
   icon: React.ReactNode;
+  dot: string;
   title: string;
   description: string;
   testId?: string;
@@ -464,17 +442,18 @@ function PaletteButton({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2.5 p-2 rounded-lg border border-border hover:border-violet-500/40 hover:bg-violet-500/5 text-left transition-colors group"
+      className="w-full flex items-center gap-2.5 p-2 rounded-lg border border-white/[0.06] bg-white/[0.015] hover:border-white/15 hover:bg-white/[0.04] text-left transition-all group"
       data-testid={testId}
     >
-      <div className="w-7 h-7 rounded-md bg-muted/50 group-hover:bg-violet-500/15 flex items-center justify-center transition-colors flex-shrink-0">
+      <div className="relative w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.05] flex items-center justify-center flex-shrink-0">
+        <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${dot}`} />
         {icon}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[11.5px] font-medium text-foreground truncate">{title}</div>
-        <div className="text-[10px] text-muted-foreground/80 truncate">{description}</div>
+        <div className="text-[11.5px] font-medium text-foreground/95 truncate tracking-tight">{title}</div>
+        <div className="text-[10px] text-muted-foreground/65 truncate">{description}</div>
       </div>
-      <Plus className="w-3.5 h-3.5 text-muted-foreground/60 group-hover:text-violet-300 flex-shrink-0" />
+      <Plus className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground/85 transition-colors flex-shrink-0" strokeWidth={1.5} />
     </button>
   );
 }
@@ -496,10 +475,12 @@ function InspectorPanel({
 }) {
   if (!node) {
     return (
-      <div className="p-6 text-center text-muted-foreground/70">
-        <Settings2 className="w-6 h-6 mx-auto mb-2 opacity-50" />
-        <div className="text-[12px] text-foreground/80 font-medium mb-1">No node selected</div>
-        <div className="text-[10.5px]">Click a node on the canvas to edit its settings.</div>
+      <div className="p-8 text-center text-muted-foreground/65">
+        <div className="w-9 h-9 mx-auto mb-3 rounded-full border border-white/[0.06] bg-white/[0.025] flex items-center justify-center">
+          <Settings2 className="w-4 h-4 opacity-55" strokeWidth={1.5} />
+        </div>
+        <div className="text-[12px] text-foreground/85 font-medium mb-1 tracking-tight">No selection</div>
+        <div className="text-[10.5px] leading-relaxed">Click a node on the canvas to edit it.</div>
       </div>
     );
   }
@@ -512,10 +493,10 @@ function InspectorPanel({
       <div className="flex items-start gap-2">
         <NodeKindBadge type={node.type} />
         <div className="flex-1 min-w-0">
-          <div className="text-[11.5px] font-semibold text-foreground truncate">
+          <div className="text-[11.5px] font-medium text-foreground/95 truncate tracking-tight">
             {nodeTitle(node)}
           </div>
-          <div className="text-[9.5px] font-mono text-muted-foreground/70 truncate">{node.id}</div>
+          <div className="text-[9.5px] font-mono text-muted-foreground/55 truncate">{node.id}</div>
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -524,7 +505,7 @@ function InspectorPanel({
               className="w-6 h-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center justify-center"
               data-testid={`inspector-duplicate-${node.id}`}
             >
-              <Copy className="w-3 h-3" />
+              <Copy className="w-3 h-3" strokeWidth={1.5} />
             </button>
           </TooltipTrigger>
           <TooltipContent>Duplicate</TooltipContent>
@@ -538,24 +519,22 @@ function InspectorPanel({
               className="w-6 h-6 rounded-md text-muted-foreground hover:text-red-300 hover:bg-red-500/15 flex items-center justify-center"
               data-testid={`inspector-delete-${node.id}`}
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash2 className="w-3 h-3" strokeWidth={1.5} />
             </button>
           </TooltipTrigger>
           <TooltipContent>Delete</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Node-specific settings */}
+      {/* Type-specific */}
       {node.type === "imageInput" && <ImageNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "prompt" && <PromptNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "generateImage" && <GenerateNodeInspector node={node} onUpdate={onUpdate} />}
 
       {/* Position */}
-      <div className="border-t border-border pt-3">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1.5">
-          Position
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
+      <div className="border-t border-white/[0.05] pt-3">
+        <SectionTitle>Position</SectionTitle>
+        <div className="grid grid-cols-2 gap-1.5 mt-1.5">
           <NumberField
             label="X"
             value={Math.round(node.position.x)}
@@ -572,32 +551,32 @@ function InspectorPanel({
       </div>
 
       {/* Connections */}
-      <div className="border-t border-border pt-3">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1.5">
-          Connections ({connectedEdges.length})
-        </div>
+      <div className="border-t border-white/[0.05] pt-3">
+        <SectionTitle>Connections · {connectedEdges.length}</SectionTitle>
         {connectedEdges.length === 0 ? (
-          <div className="text-[10.5px] text-muted-foreground/60">
+          <div className="text-[10.5px] text-muted-foreground/55 mt-1.5 leading-relaxed">
             No connections. Drag from a handle to create one.
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-1 mt-1.5">
             {connectedEdges.map((e) => {
               const direction = e.source === node.id ? "out" : "in";
               const otherId = e.source === node.id ? e.target : e.source;
               return (
                 <div
                   key={e.id}
-                  className="flex items-center gap-1.5 px-1.5 py-1 rounded-md bg-muted/30 text-[10.5px]"
+                  className="group flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.025] border border-white/[0.04] text-[10.5px]"
                   data-testid={`inspector-edge-${e.id}`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${direction === "out" ? "bg-emerald-400" : "bg-cyan-400"}`} />
-                  <span className="text-muted-foreground/70 font-mono">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${direction === "out" ? "bg-emerald-400" : "bg-sky-400"}`}
+                  />
+                  <span className="text-muted-foreground/65 font-mono">
                     {direction === "out" ? "→" : "←"}
                   </span>
                   <span className="flex-1 truncate font-mono text-foreground/85">{otherId}</span>
                   {e.targetHandle && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-muted-foreground/70 font-mono">
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-white/5 text-muted-foreground/65 font-mono">
                       {e.targetHandle}
                     </span>
                   )}
@@ -605,7 +584,7 @@ function InspectorPanel({
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => onDeleteEdge(e.id)}
-                        className="w-4 h-4 rounded text-muted-foreground hover:text-red-300 hover:bg-red-500/15 flex items-center justify-center"
+                        className="w-4 h-4 rounded text-muted-foreground hover:text-red-300 hover:bg-red-500/15 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         data-testid={`inspector-delete-edge-${e.id}`}
                       >
                         <X className="w-2.5 h-2.5" />
@@ -624,30 +603,20 @@ function InspectorPanel({
 }
 
 function NodeKindBadge({ type }: { type?: string }) {
-  if (type === "imageInput") {
-    return (
-      <div className="w-7 h-7 rounded-md bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center flex-shrink-0">
-        <ImagePlus className="w-3.5 h-3.5 text-cyan-300" />
-      </div>
-    );
-  }
-  if (type === "prompt") {
-    return (
-      <div className="w-7 h-7 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-        <FileText className="w-3.5 h-3.5 text-amber-300" />
-      </div>
-    );
-  }
-  if (type === "generateImage") {
-    return (
-      <div className="w-7 h-7 rounded-md bg-violet-500/15 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
-        <Sparkles className="w-3.5 h-3.5 text-violet-300" />
-      </div>
-    );
-  }
+  const conf = (() => {
+    if (type === "imageInput")
+      return { Icon: ImageIcon, dot: "bg-sky-400 shadow-[0_0_6px_1px_rgba(56,189,248,0.45)]" };
+    if (type === "prompt")
+      return { Icon: FileText, dot: "bg-amber-300 shadow-[0_0_6px_1px_rgba(252,211,77,0.45)]" };
+    if (type === "generateImage")
+      return { Icon: Sparkles, dot: "bg-[#a78bfa] shadow-[0_0_6px_1px_rgba(167,139,250,0.45)]" };
+    return { Icon: Layers, dot: "bg-white/30" };
+  })();
+  const { Icon, dot } = conf;
   return (
-    <div className="w-7 h-7 rounded-md bg-muted/50 flex items-center justify-center flex-shrink-0">
-      <Layers className="w-3.5 h-3.5" />
+    <div className="relative w-7 h-7 rounded-lg bg-white/[0.03] border border-white/[0.05] flex items-center justify-center flex-shrink-0">
+      <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${dot}`} />
+      <Icon className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />
     </div>
   );
 }
@@ -655,11 +624,18 @@ function NodeKindBadge({ type }: { type?: string }) {
 function nodeTitle(node: Node): string {
   if (node.type === "imageInput") return ((node.data as ImageNodeData).label as string) || "Image reference";
   if (node.type === "prompt") return "Instructions";
-  if (node.type === "generateImage") return ((node.data as GenerateNodeData).label as string) || "Generate image";
+  if (node.type === "generateImage")
+    return ((node.data as GenerateNodeData).label as string) || "Generate image";
   return node.type ?? "Node";
 }
 
-function ImageNodeInspector({ node, onUpdate }: { node: Node; onUpdate: (id: string, patch: Record<string, unknown>) => void }) {
+function ImageNodeInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
   const d = node.data as ImageNodeData;
   return (
     <div className="space-y-2">
@@ -667,88 +643,161 @@ function ImageNodeInspector({ node, onUpdate }: { node: Node; onUpdate: (id: str
         <input
           value={d.label ?? ""}
           onChange={(e) => onUpdate(node.id, { label: e.target.value })}
-          className="w-full text-[11px] bg-muted/30 border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20"
           data-testid="inspector-image-label"
         />
       </Field>
       {d.uploading && (
-        <div className="flex items-center gap-2 text-[10.5px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+        <div className="flex items-center gap-2 text-[10.5px] text-amber-200/90 bg-amber-400/[0.08] border border-amber-400/20 rounded-md px-2 py-1.5">
           <Loader2 className="w-3 h-3 animate-spin" />
           Uploading file…
         </div>
       )}
       {d.imageDataUrl && !d.uploading && (
         <Field label="Preview">
-          <img src={d.imageDataUrl} alt="" className="w-full h-24 object-cover rounded-md border border-border" />
-          <div className="text-[10px] text-muted-foreground/70 truncate mt-1">{d.filename || "—"}</div>
+          <img
+            src={d.imageDataUrl}
+            alt=""
+            className="w-full h-24 object-cover rounded-md border border-white/[0.06]"
+          />
+          <div className="text-[10px] text-muted-foreground/65 truncate mt-1">{d.filename || "—"}</div>
         </Field>
       )}
     </div>
   );
 }
 
-function PromptNodeInspector({ node, onUpdate }: { node: Node; onUpdate: (id: string, patch: Record<string, unknown>) => void }) {
+function PromptNodeInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
   const d = node.data as PromptNodeData;
   return (
-    <div className="space-y-2">
-      <Field label="Text">
-        <textarea
-          value={d.text ?? ""}
-          onChange={(e) => onUpdate(node.id, { text: e.target.value })}
-          rows={5}
-          className="w-full text-[11px] bg-muted/30 border border-border rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500/40 resize-none"
-          data-testid="inspector-prompt-text"
-        />
-      </Field>
-    </div>
+    <Field label="Text">
+      <textarea
+        value={d.text ?? ""}
+        onChange={(e) => onUpdate(node.id, { text: e.target.value })}
+        rows={6}
+        className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:border-white/20 resize-none"
+        data-testid="inspector-prompt-text"
+      />
+    </Field>
   );
 }
 
-const SIZE_OPTIONS: { value: GenerateNodeSize; label: string }[] = [
-  { value: "1024x1024", label: "Square (1024×1024)" },
-  { value: "1024x1536", label: "Portrait (1024×1536)" },
-  { value: "1536x1024", label: "Landscape (1536×1024)" },
-  { value: "auto", label: "Auto" },
+const SIZE_PRESETS: { value: GenerateNodeSize; label: string; Icon: typeof Square }[] = [
+  { value: "1024x1024", label: "Square", Icon: Square },
+  { value: "1024x1536", label: "Portrait", Icon: RectangleVertical },
+  { value: "1536x1024", label: "Landscape", Icon: RectangleHorizontal },
+  { value: "auto", label: "Auto", Icon: Wand2 },
 ];
 
-function GenerateNodeInspector({ node, onUpdate }: { node: Node; onUpdate: (id: string, patch: Record<string, unknown>) => void }) {
+const QUALITY_OPTIONS: { value: GenerateNodeQuality; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
+const BG_OPTIONS: { value: GenerateNodeBackground; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "opaque", label: "Solid" },
+  { value: "transparent", label: "Transparent" },
+];
+
+function GenerateNodeInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
   const d = node.data as GenerateNodeData;
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <Field label="Label">
         <input
           value={d.label ?? "Generate"}
           onChange={(e) => onUpdate(node.id, { label: e.target.value })}
-          className="w-full text-[11px] bg-muted/30 border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20"
           data-testid="inspector-generate-label"
         />
       </Field>
-      <Field label="Output size">
-        <select
-          value={d.size ?? "1024x1024"}
-          onChange={(e) => onUpdate(node.id, { size: e.target.value as GenerateNodeSize })}
-          className="w-full text-[11px] bg-muted/30 border border-border rounded-md px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40"
-          data-testid="inspector-generate-size"
-        >
-          {SIZE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+
+      <Field label="Aspect">
+        <div className="grid grid-cols-4 gap-1">
+          {SIZE_PRESETS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => onUpdate(node.id, { size: s.value })}
+              className={`flex flex-col items-center gap-1 py-1.5 rounded-md border text-[9.5px] transition-all ${
+                d.size === s.value
+                  ? "border-[#7c5cff]/55 bg-[#7c5cff]/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-size-${s.value}`}
+            >
+              <s.Icon className="w-3 h-3" strokeWidth={1.5} />
+              <span>{s.label}</span>
+            </button>
           ))}
-        </select>
+        </div>
       </Field>
+
+      <Field label="Quality">
+        <div className="grid grid-cols-4 gap-1">
+          {QUALITY_OPTIONS.map((q) => (
+            <button
+              key={q.value}
+              onClick={() => onUpdate(node.id, { quality: q.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                d.quality === q.value
+                  ? "border-[#7c5cff]/55 bg-[#7c5cff]/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-quality-${q.value}`}
+            >
+              {q.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Background">
+        <div className="grid grid-cols-3 gap-1">
+          {BG_OPTIONS.map((b) => (
+            <button
+              key={b.value}
+              onClick={() => onUpdate(node.id, { background: b.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                d.background === b.value
+                  ? "border-[#7c5cff]/55 bg-[#7c5cff]/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-bg-${b.value}`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
       <Field label="Prompt">
         <textarea
           value={d.prompt ?? ""}
           onChange={(e) => onUpdate(node.id, { prompt: e.target.value })}
           rows={5}
-          className="w-full text-[11px] bg-muted/30 border border-border rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40 resize-none"
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:border-white/20 resize-none"
           data-testid="inspector-generate-prompt"
         />
       </Field>
-      <div className="text-[10px] text-muted-foreground/70 leading-relaxed">
+
+      <div className="text-[10px] text-muted-foreground/65 leading-relaxed">
         Status: <span className="font-mono text-foreground/80">{d.status}</span>
-        {d.error && <div className="text-red-300 mt-0.5">{d.error}</div>}
+        {d.error && <div className="text-red-300/85 mt-0.5">{d.error}</div>}
       </div>
     </div>
   );
@@ -757,10 +806,8 @@ function GenerateNodeInspector({ node, onUpdate }: { node: Node; onUpdate: (id: 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1">
-        {label}
-      </div>
-      {children}
+      <SectionTitle>{label}</SectionTitle>
+      <div className="mt-1">{children}</div>
     </div>
   );
 }
@@ -777,8 +824,10 @@ function NumberField({
   testId?: string;
 }) {
   return (
-    <label className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/30 border border-border focus-within:border-violet-500/40">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80 font-mono">{label}</span>
+    <label className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.025] border border-white/[0.06] focus-within:border-white/20">
+      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground/65 font-mono">
+        {label}
+      </span>
       <input
         type="number"
         value={value}

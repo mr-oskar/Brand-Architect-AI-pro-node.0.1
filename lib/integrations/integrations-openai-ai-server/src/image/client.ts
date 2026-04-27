@@ -25,6 +25,14 @@ if (provider === "openai") {
 export const openai = openaiClient ?? new OpenAI({ apiKey: "noop" });
 
 export type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+export type ImageQuality = "low" | "medium" | "high" | "auto";
+export type ImageBackground = "transparent" | "opaque" | "auto";
+
+export interface ImageGenOptions {
+  size?: ImageSize;
+  quality?: ImageQuality;
+  background?: ImageBackground;
+}
 
 function getGeminiImageModel(): string {
   return process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-2.5-flash-image";
@@ -114,8 +122,12 @@ export async function generateImageWithLogoReference(
 export async function generateImageWithReferences(
   referenceDataUrls: string[],
   prompt: string,
-  size: ImageSize = "1024x1024",
+  sizeOrOpts: ImageSize | ImageGenOptions = "1024x1024",
 ): Promise<Buffer> {
+  const opts: ImageGenOptions =
+    typeof sizeOrOpts === "string" ? { size: sizeOrOpts } : sizeOrOpts;
+  const size: ImageSize = opts.size ?? "1024x1024";
+
   if (referenceDataUrls.length === 0) {
     return generateImageBuffer(prompt, size);
   }
@@ -140,12 +152,16 @@ export async function generateImageWithReferences(
     }),
   );
 
-  const response = await openai.images.edit({
+  const editParams: Record<string, unknown> = {
     model: "gpt-image-1",
     image: imageFiles,
     prompt,
     size,
-  });
+  };
+  if (opts.quality && opts.quality !== "auto") editParams.quality = opts.quality;
+  if (opts.background && opts.background !== "auto") editParams.background = opts.background;
+
+  const response = await openai.images.edit(editParams as Parameters<typeof openai.images.edit>[0]);
 
   const resultBase64 = response.data?.[0]?.b64_json ?? "";
   return Buffer.from(resultBase64, "base64");

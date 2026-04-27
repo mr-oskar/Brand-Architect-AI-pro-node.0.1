@@ -1,3 +1,3 @@
 export { openai } from "./client";
-export { generateImageBuffer, generateImageWithLogoReference, generateImageWithReferences, editImages, type ImageSize } from "./image";
+export { generateImageBuffer, generateImageWithLogoReference, generateImageWithReferences, editImages, type ImageSize, type ImageQuality, type ImageBackground, type ImageGenOptions } from "./image";
 export { batchProcess, batchProcessWithSSE, isRateLimitError, type BatchOptions } from "./batch";

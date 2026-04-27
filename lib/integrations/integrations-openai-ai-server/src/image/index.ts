@@ -1,1 +1,1 @@
-export { openai, generateImageBuffer, generateImageWithLogoReference, generateImageWithReferences, editImages, type ImageSize } from "./client";
+export { openai, generateImageBuffer, generateImageWithLogoReference, generateImageWithReferences, editImages, type ImageSize, type ImageQuality, type ImageBackground, type ImageGenOptions } from "./client";

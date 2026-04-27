@@ -33,6 +33,8 @@ export function defaultStarterNodes(): { nodes: Node[]; edges: Edge[] } {
         resultUrl: null,
         error: null,
         size: "1024x1024",
+        quality: "auto",
+        background: "auto",
         label: "Generate",
       },
     },

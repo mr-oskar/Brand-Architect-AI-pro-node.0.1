@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { ImagePlus, Upload, X, Maximize2, RotateCcw, Loader2 } from "lucide-react";
+import { Image as ImageIcon, Upload, X, Maximize2, RotateCw, Loader2 } from "lucide-react";
 import type { ImageNodeData } from "./types";
 import ImageLightbox from "@/components/ImageLightbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -58,53 +58,62 @@ export default function ImageInputNode({ id, data, selected }: NodeProps) {
   return (
     <>
       <div
-        className={`bg-card border rounded-xl shadow-lg shadow-black/30 w-52 overflow-hidden transition-all ${
-          selected ? "border-cyan-400/70 ring-2 ring-cyan-500/30" : "border-border hover:border-cyan-500/40"
+        className={`group/node relative w-56 rounded-2xl backdrop-blur-xl bg-[#15171f]/85 border transition-all duration-200 ${
+          selected
+            ? "border-[#7c5cff]/55 shadow-[0_0_0_1px_rgba(124,92,255,0.35),0_18px_50px_-12px_rgba(124,92,255,0.35)]"
+            : "border-white/[0.07] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.6)] hover:border-white/15"
         }`}
         data-testid={`node-image-${id}`}
       >
-        <div className="px-2.5 py-1.5 border-b border-border bg-gradient-to-r from-cyan-500/10 to-transparent flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
-            <ImagePlus className="w-2.5 h-2.5 text-cyan-300" />
-          </div>
-          <span className="text-[10.5px] font-semibold text-foreground truncate flex-1">{d.label}</span>
+        {/* Hairline accent */}
+        <div
+          aria-hidden
+          className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-sky-400/60 to-transparent"
+        />
+
+        <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_8px_2px_rgba(56,189,248,0.45)]" />
+          <span className="flex-1 text-[11px] font-medium text-foreground/95 truncate tracking-tight">
+            {d.label}
+          </span>
           {d.imageDataUrl && !isUploading && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => fileRef.current?.click()}
-                  className="text-muted-foreground hover:text-foreground transition-colors nodrag p-0.5"
+                  className="w-5 h-5 rounded-md flex items-center justify-center text-muted-foreground/70 hover:text-foreground hover:bg-white/5 transition-colors nodrag"
                   data-testid={`button-replace-${id}`}
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCw className="w-3 h-3" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Replace</TooltipContent>
             </Tooltip>
           )}
-          {isUploading && <Loader2 className="w-3 h-3 text-cyan-300 animate-spin" />}
+          {isUploading && <Loader2 className="w-3 h-3 text-sky-300 animate-spin" />}
         </div>
-        <div className="p-2 space-y-1.5">
+
+        <div className="px-2.5 pb-2.5 space-y-1.5">
           {isUploading ? (
-            <div className="w-full h-32 rounded-lg border border-cyan-500/30 bg-cyan-500/5 flex flex-col items-center justify-center gap-1.5 nodrag">
-              <Loader2 className="w-5 h-5 text-cyan-300 animate-spin" />
-              <span className="text-[10px] text-cyan-200/80">Uploading…</span>
+            <div className="w-full h-32 rounded-xl border border-sky-400/20 bg-sky-500/[0.06] flex flex-col items-center justify-center gap-2 nodrag">
+              <Loader2 className="w-5 h-5 text-sky-300 animate-spin" />
+              <span className="text-[10px] text-sky-200/80 tracking-wide">Loading file</span>
             </div>
           ) : d.imageDataUrl ? (
-            <div className="relative group">
+            <div className="relative group/img rounded-xl overflow-hidden bg-black/40">
               <button
                 type="button"
                 onClick={() => setLightboxOpen(true)}
-                className="block w-full h-32 rounded-lg overflow-hidden nodrag cursor-zoom-in"
+                className="block w-full h-32 nodrag cursor-zoom-in"
                 data-testid={`button-preview-image-${id}`}
               >
                 <img
                   src={d.imageDataUrl}
                   alt="reference"
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover/img:scale-[1.04]"
                 />
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="absolute bottom-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity" />
+                <div className="absolute bottom-1.5 left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/55 backdrop-blur-sm text-white opacity-0 group-hover/img:opacity-100 transition-opacity">
                   <Maximize2 className="w-2.5 h-2.5" />
                 </div>
               </button>
@@ -112,7 +121,7 @@ export default function ImageInputNode({ id, data, selected }: NodeProps) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => d.onChange(id, null, null)}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/65 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity nodrag hover:bg-red-500/85"
+                    className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/65 backdrop-blur-sm text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-all hover:bg-red-500/85 nodrag"
                     aria-label="Remove image"
                     data-testid={`button-remove-image-${id}`}
                   >
@@ -131,22 +140,26 @@ export default function ImageInputNode({ id, data, selected }: NodeProps) {
               }}
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
-              className={`w-full h-32 rounded-lg border-2 border-dashed transition-all flex flex-col items-center justify-center gap-1 nodrag ${
+              className={`w-full h-32 rounded-xl border border-dashed transition-all flex flex-col items-center justify-center gap-1.5 nodrag ${
                 dragOver
-                  ? "border-cyan-400/70 bg-cyan-500/10 text-cyan-200"
-                  : "border-border hover:border-cyan-500/50 hover:bg-muted/20 text-muted-foreground"
+                  ? "border-sky-400/60 bg-sky-500/[0.08] text-sky-200"
+                  : "border-white/10 bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.04] text-muted-foreground"
               }`}
               data-testid={`button-upload-${id}`}
             >
-              <Upload className="w-4 h-4" />
-              <span className="text-[10px]">{dragOver ? "Drop here" : "Click or drop image"}</span>
-              <span className="text-[9px] text-muted-foreground/60">PNG · JPG · WebP · 8MB</span>
+              <div className="w-7 h-7 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center">
+                {dragOver ? <Upload className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
+              </div>
+              <span className="text-[10.5px]">{dragOver ? "Drop image here" : "Click or drop"}</span>
+              <span className="text-[9px] text-muted-foreground/55">PNG · JPG · WebP · 8 MB</span>
             </button>
           )}
-          <div className="flex items-center justify-between px-1.5 py-0.5 rounded bg-muted/40 text-[9px] text-muted-foreground gap-2">
-            <span className="truncate flex-1">{d.filename || (localError ? localError : "No file")}</span>
+          <div className="flex items-center justify-between px-1.5 text-[9.5px] text-muted-foreground/70 gap-2">
+            <span className="truncate flex-1">
+              {localError ? <span className="text-red-300/90">{localError}</span> : d.filename || "No file"}
+            </span>
             {sizeBytes != null && !isUploading && (
-              <span className="font-mono text-muted-foreground/70 flex-shrink-0">
+              <span className="font-mono text-muted-foreground/50 flex-shrink-0">
                 {sizeBytes < 1024 * 1024
                   ? `${(sizeBytes / 1024).toFixed(0)} KB`
                   : `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`}
@@ -165,7 +178,7 @@ export default function ImageInputNode({ id, data, selected }: NodeProps) {
           type="source"
           position={Position.Right}
           id="image"
-          className="!w-3 !h-3 !bg-cyan-500 !border-2 !border-card hover:!w-3.5 hover:!h-3.5 transition-all"
+          className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-sky-400 hover:!w-3 hover:!h-3 transition-all"
         />
       </div>
 

@@ -27,7 +27,14 @@ import GenerateImageNode from "./GenerateImageNode";
 import Sidebar from "./Sidebar";
 import CanvasControls from "./CanvasControls";
 import { notifyError, notifySuccess } from "@/lib/apiError";
-import type { GenerateNodeData, GenerateNodeSize, ImageNodeData, ReferenceMention } from "./types";
+import type {
+  GenerateNodeBackground,
+  GenerateNodeData,
+  GenerateNodeQuality,
+  GenerateNodeSize,
+  ImageNodeData,
+  ReferenceMention,
+} from "./types";
 import {
   loadStore,
   saveStore,
@@ -283,6 +290,10 @@ function NodesEditorInner() {
       const inNodePrompt = ((genNode?.data as GenerateNodeData | undefined)?.prompt ?? "").trim();
       const size: GenerateNodeSize =
         (genNode?.data as GenerateNodeData | undefined)?.size ?? "1024x1024";
+      const quality: GenerateNodeQuality =
+        (genNode?.data as GenerateNodeData | undefined)?.quality ?? "auto";
+      const background: GenerateNodeBackground =
+        (genNode?.data as GenerateNodeData | undefined)?.background ?? "auto";
 
       const refs = referencesByGenId.get(genNodeId) ?? [];
 
@@ -377,6 +388,8 @@ function NodesEditorInner() {
             prompt: resolvedPrompt,
             referenceImages: resolved,
             size,
+            quality,
+            background,
           }),
         });
         const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
@@ -421,6 +434,7 @@ function NodesEditorInner() {
             references: referencesByGenId.get(n.id) ?? [],
             onPromptChange: handleGeneratePromptChange,
             onRun: runGenerate,
+            onSettingsChange: updateNodeData,
           },
         };
       }
@@ -434,6 +448,7 @@ function NodesEditorInner() {
     handlePromptChange,
     handleGeneratePromptChange,
     runGenerate,
+    updateNodeData,
   ]);
 
   const nodeTypes = useMemo<NodeTypes>(
@@ -496,6 +511,8 @@ function NodesEditorInner() {
         resultUrl: null,
         error: null,
         size: "1024x1024",
+        quality: "auto",
+        background: "auto",
         label: "Generate",
       },
     });
@@ -629,36 +646,39 @@ function NodesEditorInner() {
   );
 
   return (
-    <div className="h-screen w-full flex flex-col bg-[#0a0a14] relative">
+    <div className="h-screen w-full flex flex-col bg-[#0b0d12] relative">
       {/* Top header */}
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border bg-card/50 backdrop-blur z-30">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.06] bg-[#0d0f15]/85 backdrop-blur-xl z-30">
+        <div className="flex items-center gap-2.5 min-w-0">
           <Link
             href="/"
-            className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground/80 hover:text-foreground hover:bg-white/5 transition-colors flex-shrink-0"
             data-testid="link-back-dashboard"
             title="Back to dashboard"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
           </Link>
-          <div className="min-w-0">
-            <h1 className="text-sm font-bold text-foreground tracking-tight truncate">Nodes Editor</h1>
-            <p className="text-[10.5px] text-muted-foreground truncate">
-              <span className="text-foreground/80 font-medium">{current.name}</span>
-              <span className="mx-1.5 text-muted-foreground/40">·</span>
-              Visual AI image workflow
-            </p>
+          <div className="w-px h-5 bg-white/[0.08]" />
+          <div className="min-w-0 flex items-center gap-2">
+            <span className="text-[12px] font-medium text-foreground/95 tracking-tight">Nodes</span>
+            <span className="text-muted-foreground/35">/</span>
+            <span className="text-[11.5px] text-foreground/85 truncate" data-testid="text-current-workspace">
+              {current.name}
+            </span>
           </div>
         </div>
-        <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground/70">
+        <div className="hidden md:flex items-center gap-3 text-[9.5px] uppercase tracking-wider text-muted-foreground/55 font-medium">
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" /> Reference
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_1px_rgba(56,189,248,0.45)]" />
+            Reference
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Instructions
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shadow-[0_0_6px_1px_rgba(252,211,77,0.45)]" />
+            Prompt
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-violet-500" /> Generate
+            <span className="w-1.5 h-1.5 rounded-full bg-[#a78bfa] shadow-[0_0_6px_1px_rgba(167,139,250,0.45)]" />
+            Generate
           </span>
         </div>
       </div>
@@ -713,19 +733,20 @@ function NodesEditorInner() {
             maxZoom={3}
             deleteKeyCode={null}
           >
-            <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#1f2233" />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#1c1f2b" />
             <MiniMap
               pannable
               zoomable
               position="bottom-right"
-              className="!bg-card !border-border"
-              maskColor="rgba(0,0,0,0.6)"
+              className="!bg-[#13151c]/85 !border !border-white/10 !rounded-xl backdrop-blur-xl shadow-[0_8px_32px_-8px_rgba(0,0,0,0.7)] overflow-hidden"
+              maskColor="rgba(11,13,18,0.7)"
               nodeColor={(n) => {
-                if (n.type === "imageInput") return "#06b6d4";
-                if (n.type === "prompt") return "#f59e0b";
-                if (n.type === "generateImage") return "#8b5cf6";
+                if (n.type === "imageInput") return "#38bdf8";
+                if (n.type === "prompt") return "#fcd34d";
+                if (n.type === "generateImage") return "#a78bfa";
                 return "#6b7280";
               }}
+              nodeStrokeWidth={0}
             />
           </ReactFlow>
           <CanvasControls />

@@ -26,6 +26,8 @@ export type ReferenceMention = {
 };
 
 export type GenerateNodeSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+export type GenerateNodeQuality = "low" | "medium" | "high" | "auto";
+export type GenerateNodeBackground = "transparent" | "opaque" | "auto";
 
 export type GenerateNodeData = {
   prompt: string;
@@ -34,6 +36,8 @@ export type GenerateNodeData = {
   error: string | null;
   references: ReferenceMention[];
   size?: GenerateNodeSize;
+  quality?: GenerateNodeQuality;
+  background?: GenerateNodeBackground;
   label?: string;
   onPromptChange: (id: string, text: string) => void;
   onRun: (id: string) => void;
