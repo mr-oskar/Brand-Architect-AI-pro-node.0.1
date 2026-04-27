@@ -3,7 +3,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
-  Controls,
   MiniMap,
   addEdge,
   applyNodeChanges,
@@ -15,92 +14,100 @@ import {
   type Connection,
   type NodeChange,
   type EdgeChange,
+  type Viewport,
   BackgroundVariant,
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ImagePlus, FileText, Sparkles, Plus, RotateCcw, ArrowLeft, GripHorizontal, Minus, X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
 import ImageInputNode from "./ImageInputNode";
 import PromptNode from "./PromptNode";
 import GenerateImageNode from "./GenerateImageNode";
+import Sidebar from "./Sidebar";
+import CanvasControls from "./CanvasControls";
 import { notifyError, notifySuccess } from "@/lib/apiError";
-import type { ReferenceMention } from "./types";
+import type { GenerateNodeData, GenerateNodeSize, ImageNodeData, ReferenceMention } from "./types";
+import {
+  loadStore,
+  saveStore,
+  patchCurrentWorkspace,
+  getCurrentWorkspace,
+  addWorkspace,
+  renameWorkspace,
+  deleteWorkspace,
+  switchWorkspace,
+  duplicateWorkspace,
+  defaultStarterNodes,
+  urlToDataUrl,
+} from "./storage";
+import type { WorkspaceStore } from "./types";
 
-const STORAGE_KEY = "nodes-editor-graph-v1";
-
-const initialNodes: Node[] = [
-  {
-    id: "img-1",
-    type: "imageInput",
-    position: { x: 80, y: 80 },
-    data: { imageDataUrl: null, filename: null, label: "Inspiration 1" },
-  },
-  {
-    id: "img-2",
-    type: "imageInput",
-    position: { x: 80, y: 360 },
-    data: { imageDataUrl: null, filename: null, label: "Inspiration 2" },
-  },
-  {
-    id: "gen-1",
-    type: "generateImage",
-    position: { x: 520, y: 160 },
-    data: {
-      prompt: "حوّل المراجع إلى أسلوب فني موحّد، استخدم @ref1 كقاعدة وأضف ألوان @ref2.",
-      status: "idle",
-      resultUrl: null,
-      error: null,
-    },
-  },
-];
-
-const initialEdges: Edge[] = [
-  { id: "e1", source: "img-1", target: "gen-1", targetHandle: "references", animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
-  { id: "e2", source: "img-2", target: "gen-1", targetHandle: "references", animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
-];
-
-function loadFromStorage(): { nodes: Node[]; edges: Edge[] } | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed?.nodes) && Array.isArray(parsed?.edges)) {
-      return { nodes: parsed.nodes, edges: parsed.edges };
-    }
-  } catch {}
-  return null;
-}
-
-function saveToStorage(nodes: Node[], edges: Edge[]) {
-  try {
-    const trimmed = nodes.map((n) => {
-      if (n.type === "imageInput") {
-        return { ...n, data: { ...n.data, imageDataUrl: null } };
-      }
-      if (n.type === "generateImage") {
-        return { ...n, data: { ...n.data, status: "idle", resultUrl: null, error: null } };
-      }
-      return n;
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes: trimmed, edges }));
-  } catch {}
-}
+const SIDEBAR_COLLAPSED_KEY = "nodes-editor-sidebar-collapsed";
 
 function NodesEditorInner() {
-  const [nodes, setNodes] = useState<Node[]>(() => loadFromStorage()?.nodes ?? initialNodes);
-  const [edges, setEdges] = useState<Edge[]>(() => loadFromStorage()?.edges ?? initialEdges);
+  // ===== Workspace store =====
+  const [store, setStore] = useState<WorkspaceStore>(() => loadStore());
+  const current = getCurrentWorkspace(store);
+
+  const [nodes, setNodes] = useState<Node[]>(current.nodes);
+  const [edges, setEdges] = useState<Edge[]>(current.edges);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const idCounter = useRef<number>(Date.now());
   const reconnectSuccessful = useRef<boolean>(true);
+  const lastWsId = useRef<string>(current.id);
+  const lastViewport = useRef<Viewport | undefined>(current.viewport);
+  const dataUrlCache = useRef<Map<string, Promise<string>>>(new Map());
 
-  const persist = useCallback((ns: Node[], es: Edge[]) => {
-    saveToStorage(ns, es);
+  // Reload when workspace switches
+  useEffect(() => {
+    if (lastWsId.current !== current.id) {
+      lastWsId.current = current.id;
+      setNodes(current.nodes);
+      setEdges(current.edges);
+      setSelectedNodeId(null);
+      lastViewport.current = current.viewport;
+      dataUrlCache.current = new Map();
+    }
+  }, [current.id, current.nodes, current.edges, current.viewport]);
+
+  // Persist current workspace + store on changes
+  const persist = useCallback(
+    (ns: Node[], es: Edge[]) => {
+      setStore((prev) => {
+        const next = patchCurrentWorkspace(prev, { nodes: ns, edges: es });
+        saveStore(next);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const persistViewport = useCallback((vp: Viewport) => {
+    lastViewport.current = vp;
+    setStore((prev) => {
+      const next = patchCurrentWorkspace(prev, { viewport: vp });
+      saveStore(next);
+      return next;
+    });
   }, []);
 
+  // ===== Node/edge change handlers =====
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       setNodes((nds) => {
         const next = applyNodeChanges(changes, nds);
+        // Track selection changes
+        for (const c of changes) {
+          if (c.type === "select") {
+            if (c.selected) setSelectedNodeId(c.id);
+            else
+              setSelectedNodeId((curr) => (curr === c.id ? null : curr));
+          }
+          if (c.type === "remove") {
+            setSelectedNodeId((curr) => (curr === c.id ? null : curr));
+          }
+        }
         persist(next, edges);
         return next;
       });
@@ -122,7 +129,10 @@ function NodesEditorInner() {
   const onConnect = useCallback(
     (connection: Connection) => {
       setEdges((eds) => {
-        const next = addEdge({ ...connection, animated: true, markerEnd: { type: MarkerType.ArrowClosed } }, eds);
+        const next = addEdge(
+          { ...connection, animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
+          eds,
+        );
         persist(nodes, next);
         return next;
       });
@@ -130,51 +140,79 @@ function NodesEditorInner() {
     [nodes, persist],
   );
 
-  // Edge disconnect: double-click to delete
-  const onEdgeDoubleClick = useCallback((_e: React.MouseEvent, edge: Edge) => {
-    setEdges((eds) => {
-      const next = eds.filter((x) => x.id !== edge.id);
-      persist(nodes, next);
-      return next;
-    });
-  }, [nodes, persist]);
+  const onEdgeDoubleClick = useCallback(
+    (_e: React.MouseEvent, edge: Edge) => {
+      setEdges((eds) => {
+        const next = eds.filter((x) => x.id !== edge.id);
+        persist(nodes, next);
+        return next;
+      });
+    },
+    [nodes, persist],
+  );
 
-  // Edge disconnect: drag the edge endpoint off to delete it
   const onReconnectStart = useCallback(() => {
     reconnectSuccessful.current = false;
   }, []);
 
-  const onReconnect = useCallback((oldEdge: Edge, newConnection: Connection) => {
-    reconnectSuccessful.current = true;
-    setEdges((els) => {
-      const next = reconnectEdge(oldEdge, newConnection, els);
-      persist(nodes, next);
-      return next;
-    });
-  }, [nodes, persist]);
-
-  const onReconnectEnd = useCallback((_evt: MouseEvent | TouchEvent, edge: Edge) => {
-    if (!reconnectSuccessful.current) {
-      setEdges((eds) => {
-        const next = eds.filter((e) => e.id !== edge.id);
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      reconnectSuccessful.current = true;
+      setEdges((els) => {
+        const next = reconnectEdge(oldEdge, newConnection, els);
         persist(nodes, next);
         return next;
       });
-    }
-    reconnectSuccessful.current = true;
-  }, [nodes, persist]);
+    },
+    [nodes, persist],
+  );
 
-  const updateNodeData = useCallback((nodeId: string, patch: Record<string, unknown>) => {
-    setNodes((nds) => {
-      const next = nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n));
-      persist(next, edges);
-      return next;
-    });
-  }, [edges, persist]);
+  const onReconnectEnd = useCallback(
+    (_evt: MouseEvent | TouchEvent, edge: Edge) => {
+      if (!reconnectSuccessful.current) {
+        setEdges((eds) => {
+          const next = eds.filter((e) => e.id !== edge.id);
+          persist(nodes, next);
+          return next;
+        });
+      }
+      reconnectSuccessful.current = true;
+    },
+    [nodes, persist],
+  );
+
+  const updateNodeData = useCallback(
+    (nodeId: string, patch: Record<string, unknown>) => {
+      setNodes((nds) => {
+        let next = nds;
+        // Special key __position to also update position
+        if ("__position" in patch) {
+          const pos = patch.__position as { x: number; y: number };
+          const rest = { ...patch };
+          delete (rest as Record<string, unknown>).__position;
+          next = nds.map((n) =>
+            n.id === nodeId ? { ...n, position: pos, data: { ...n.data, ...rest } } : n,
+          );
+        } else {
+          next = nds.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+        }
+        persist(next, edges);
+        return next;
+      });
+    },
+    [edges, persist],
+  );
 
   const handleImageChange = useCallback(
     (id: string, dataUrl: string | null, filename: string | null) => {
       updateNodeData(id, { imageDataUrl: dataUrl, filename });
+    },
+    [updateNodeData],
+  );
+
+  const handleImageUploadingChange = useCallback(
+    (id: string, uploading: boolean) => {
+      updateNodeData(id, { uploading });
     },
     [updateNodeData],
   );
@@ -193,48 +231,109 @@ function NodesEditorInner() {
     [updateNodeData],
   );
 
-  // Compute connected references for each generate node, in deterministic edge order.
+  // ===== References per generate node =====
+  // Image-input nodes AND generate-image nodes (whose result is an image) can be references.
   const referencesByGenId = useMemo(() => {
     const map = new Map<string, ReferenceMention[]>();
     const genNodes = nodes.filter((n) => n.type === "generateImage");
     for (const gen of genNodes) {
-      const incoming = edges.filter((e) => e.target === gen.id && (e.targetHandle === "references" || !e.targetHandle));
+      const incoming = edges.filter(
+        (e) => e.target === gen.id && (e.targetHandle === "references" || !e.targetHandle),
+      );
       const refs: ReferenceMention[] = [];
       let idx = 1;
       for (const e of incoming) {
         const src = nodes.find((x) => x.id === e.source);
-        if (!src || src.type !== "imageInput") continue;
-        const data = src.data as { label?: string; imageDataUrl?: string | null };
-        refs.push({
-          id: src.id,
-          label: data.label || `Inspiration ${idx}`,
-          mention: `@ref${idx}`,
-          thumbnail: data.imageDataUrl ?? null,
-        });
-        idx += 1;
+        if (!src) continue;
+        if (src.type === "imageInput") {
+          const data = src.data as ImageNodeData;
+          const ready = !!data.imageDataUrl && !data.uploading;
+          refs.push({
+            id: src.id,
+            label: data.label || `Reference ${idx}`,
+            mention: `@ref${idx}`,
+            thumbnail: data.imageDataUrl ?? null,
+            ready,
+            kind: "imageInput",
+          });
+          idx += 1;
+        } else if (src.type === "generateImage") {
+          const data = src.data as GenerateNodeData;
+          const ready = data.status === "done" && !!data.resultUrl;
+          refs.push({
+            id: src.id,
+            label: data.label || `Generated ${idx}`,
+            mention: `@ref${idx}`,
+            thumbnail: data.resultUrl ?? null,
+            ready,
+            kind: "generateImage",
+          });
+          idx += 1;
+        }
       }
       map.set(gen.id, refs);
     }
     return map;
   }, [nodes, edges]);
 
+  // ===== Run a generate node =====
   const runGenerate = useCallback(
     async (genNodeId: string) => {
       const genNode = nodes.find((n) => n.id === genNodeId);
-      const inNodePrompt = ((genNode?.data as { prompt?: string } | undefined)?.prompt ?? "").trim();
+      const inNodePrompt = ((genNode?.data as GenerateNodeData | undefined)?.prompt ?? "").trim();
+      const size: GenerateNodeSize =
+        (genNode?.data as GenerateNodeData | undefined)?.size ?? "1024x1024";
 
-      // Resolve references in the same order as the chips shown in the node.
       const refs = referencesByGenId.get(genNodeId) ?? [];
-      const refImages: string[] = [];
-      for (const r of refs) {
-        const n = nodes.find((x) => x.id === r.id);
-        const url = (n?.data as { imageDataUrl?: string | null } | undefined)?.imageDataUrl;
-        if (typeof url === "string" && url.startsWith("data:image/")) {
-          refImages.push(url);
-        }
+
+      // Refuse to run if any reference isn't ready yet.
+      const notReady = refs.filter((r) => !r.ready);
+      if (notReady.length > 0) {
+        notifyError(
+          "References not ready",
+          null,
+          "Wait until all reference images finish loading before running.",
+        );
+        return;
       }
 
-      // Optional external prompt fallback (legacy Prompt node).
+      // Resolve all references to data URLs (fetch generated outputs as needed).
+      let resolved: string[] = [];
+      try {
+        resolved = await Promise.all(
+          refs.map(async (r) => {
+            const sourceNode = nodes.find((x) => x.id === r.id);
+            if (!sourceNode) throw new Error(`Reference ${r.mention} is missing.`);
+            if (sourceNode.type === "imageInput") {
+              const url = (sourceNode.data as ImageNodeData).imageDataUrl;
+              if (!url || !url.startsWith("data:image/")) {
+                throw new Error(`Reference ${r.mention} has no image yet.`);
+              }
+              return url;
+            }
+            // generateImage source — fetch its URL and convert to data URL
+            const url = (sourceNode.data as GenerateNodeData).resultUrl;
+            if (!url) throw new Error(`Reference ${r.mention} has no generated output yet.`);
+            if (url.startsWith("data:image/")) return url;
+            const cache = dataUrlCache.current;
+            const cached = cache.get(url);
+            if (cached) return cached;
+            const p = urlToDataUrl(url).catch((err) => {
+              cache.delete(url);
+              throw err;
+            });
+            cache.set(url, p);
+            return p;
+          }),
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to load references";
+        updateNodeData(genNodeId, { status: "error", error: msg, resultUrl: null });
+        notifyError("Could not prepare references", err, msg);
+        return;
+      }
+
+      // Optional fallback: legacy Prompt node connected to "prompt" handle.
       let prompt = inNodePrompt;
       if (!prompt) {
         const incoming = edges.filter((e) => e.target === genNodeId && e.targetHandle === "prompt");
@@ -249,14 +348,18 @@ function NodesEditorInner() {
       }
 
       if (!prompt) {
-        notifyError("لا توجد تعليمات", null, "اكتب البرومت داخل عقدة التوليد أو وصّل عقدة Instructions بها.");
+        notifyError(
+          "No instructions",
+          null,
+          "Write a prompt inside the generate node, or connect an Instructions node to it.",
+        );
         return;
       }
 
       // Replace @refN tokens with explicit references the model understands.
       const resolvedPrompt = prompt.replace(/@ref(\d+)/g, (match, n) => {
         const idx = Number(n);
-        if (Number.isFinite(idx) && idx >= 1 && idx <= refImages.length) {
+        if (Number.isFinite(idx) && idx >= 1 && idx <= resolved.length) {
           return `Reference Image #${idx}`;
         }
         return match;
@@ -270,31 +373,42 @@ function NodesEditorInner() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ prompt: resolvedPrompt, referenceImages: refImages }),
+          body: JSON.stringify({
+            prompt: resolvedPrompt,
+            referenceImages: resolved,
+            size,
+          }),
         });
         const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
         if (!res.ok || !json.url) {
-          const msg = json.error || `فشل التوليد (${res.status})`;
+          const msg = json.error || `Generation failed (${res.status})`;
           updateNodeData(genNodeId, { status: "error", error: msg, resultUrl: null });
-          notifyError("فشل التوليد", null, msg);
+          notifyError("Generation failed", null, msg);
           return;
         }
         updateNodeData(genNodeId, { status: "done", resultUrl: json.url, error: null });
-        notifySuccess("تم توليد الصورة");
+        notifySuccess("Image generated");
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Network error";
         updateNodeData(genNodeId, { status: "error", error: msg, resultUrl: null });
-        notifyError("فشل الاتصال", err, msg);
+        notifyError("Connection failed", err, msg);
       }
     },
     [edges, nodes, referencesByGenId, updateNodeData],
   );
 
-  // Wire callbacks + computed reference lists into node data
+  // ===== Decorate nodes with callbacks + computed refs =====
   const decoratedNodes = useMemo<Node[]>(() => {
     return nodes.map((n) => {
       if (n.type === "imageInput") {
-        return { ...n, data: { ...n.data, onChange: handleImageChange } };
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            onChange: handleImageChange,
+            onUploadingChange: handleImageUploadingChange,
+          },
+        };
       }
       if (n.type === "prompt") {
         return { ...n, data: { ...n.data, onChange: handlePromptChange } };
@@ -312,7 +426,15 @@ function NodesEditorInner() {
       }
       return n;
     });
-  }, [nodes, referencesByGenId, handleImageChange, handlePromptChange, handleGeneratePromptChange, runGenerate]);
+  }, [
+    nodes,
+    referencesByGenId,
+    handleImageChange,
+    handleImageUploadingChange,
+    handlePromptChange,
+    handleGeneratePromptChange,
+    runGenerate,
+  ]);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({
@@ -323,120 +445,209 @@ function NodesEditorInner() {
     [],
   );
 
+  // ===== Add / remove / duplicate node helpers =====
   const nextId = (prefix: string) => {
     idCounter.current += 1;
     return `${prefix}-${idCounter.current}`;
   };
 
-  const addImageNode = () => {
+  const insertNode = useCallback(
+    (newNode: Node) => {
+      setNodes((nds) => {
+        const next = [...nds, newNode];
+        persist(next, edges);
+        return next;
+      });
+      setSelectedNodeId(newNode.id);
+    },
+    [edges, persist],
+  );
+
+  const addImageNode = useCallback(() => {
     const id = nextId("img");
     const count = nodes.filter((n) => n.type === "imageInput").length + 1;
-    const newNode: Node = {
+    insertNode({
       id,
       type: "imageInput",
-      position: { x: 80 + Math.random() * 60, y: 80 + Math.random() * 200 },
-      data: { imageDataUrl: null, filename: null, label: `Inspiration ${count}` },
-    };
-    setNodes((nds) => {
-      const next = [...nds, newNode];
-      persist(next, edges);
-      return next;
+      position: { x: 100 + Math.random() * 80, y: 100 + Math.random() * 220 },
+      data: { imageDataUrl: null, filename: null, label: `Reference ${count}` },
     });
-  };
+  }, [insertNode, nodes]);
 
-  const addPromptNode = () => {
+  const addPromptNode = useCallback(() => {
     const id = nextId("prompt");
-    const newNode: Node = {
+    insertNode({
       id,
       type: "prompt",
       position: { x: 420 + Math.random() * 60, y: 220 + Math.random() * 80 },
       data: { text: "" },
-    };
-    setNodes((nds) => {
-      const next = [...nds, newNode];
-      persist(next, edges);
-      return next;
     });
-  };
+  }, [insertNode]);
 
-  const addGenerateNode = () => {
+  const addGenerateNode = useCallback(() => {
     const id = nextId("gen");
-    const newNode: Node = {
+    insertNode({
       id,
       type: "generateImage",
-      position: { x: 820 + Math.random() * 60, y: 160 + Math.random() * 80 },
-      data: { prompt: "", status: "idle", resultUrl: null, error: null },
+      position: { x: 720 + Math.random() * 60, y: 160 + Math.random() * 80 },
+      data: {
+        prompt: "",
+        status: "idle",
+        resultUrl: null,
+        error: null,
+        size: "1024x1024",
+        label: "Generate",
+      },
+    });
+  }, [insertNode]);
+
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) => {
+        const nextNodes = nds.filter((n) => n.id !== nodeId);
+        setEdges((eds) => {
+          const nextEdges = eds.filter((e) => e.source !== nodeId && e.target !== nodeId);
+          persist(nextNodes, nextEdges);
+          return nextEdges;
+        });
+        return nextNodes;
+      });
+      setSelectedNodeId((c) => (c === nodeId ? null : c));
+    },
+    [persist],
+  );
+
+  const duplicateNode = useCallback(
+    (nodeId: string) => {
+      const src = nodes.find((n) => n.id === nodeId);
+      if (!src) return;
+      const id = nextId(src.type ?? "node");
+      const copy: Node = {
+        ...src,
+        id,
+        position: { x: src.position.x + 32, y: src.position.y + 32 },
+        selected: false,
+        data: { ...src.data },
+      };
+      insertNode(copy);
+    },
+    [insertNode, nodes],
+  );
+
+  const deleteEdge = useCallback(
+    (edgeId: string) => {
+      setEdges((eds) => {
+        const next = eds.filter((e) => e.id !== edgeId);
+        persist(nodes, next);
+        return next;
+      });
+    },
+    [nodes, persist],
+  );
+
+  const resetCanvas = useCallback(() => {
+    const { nodes: ns, edges: es } = defaultStarterNodes();
+    setNodes(ns);
+    setEdges(es);
+    setSelectedNodeId(null);
+    persist(ns, es);
+  }, [persist]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId) {
+        e.preventDefault();
+        deleteNode(selectedNodeId);
+      }
     };
-    setNodes((nds) => {
-      const next = [...nds, newNode];
-      persist(next, edges);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteNode, selectedNodeId]);
+
+  // ===== Workspace controls =====
+  const onCreateWorkspace = useCallback((name: string) => {
+    setStore((prev) => {
+      const next = addWorkspace(prev, name);
+      saveStore(next);
       return next;
     });
-  };
-
-  const resetCanvas = () => {
-    if (!confirm("هل تريد إعادة ضبط لوحة العقد؟ سيتم حذف كل التغييرات.")) return;
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-    saveToStorage(initialNodes, initialEdges);
-  };
-
-  // ===== Floating, draggable, collapsible toolbar =====
-  const [toolbarOffset, setToolbarOffset] = useState<{ x: number; y: number }>(() => {
-    try {
-      const raw = localStorage.getItem("nodes-editor-toolbar-offset");
-      if (raw) return JSON.parse(raw);
-    } catch {}
-    return { x: 0, y: 0 };
-  });
-  const [collapsed, setCollapsed] = useState(false);
-  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
-
-  useEffect(() => {
-    try { localStorage.setItem("nodes-editor-toolbar-offset", JSON.stringify(toolbarOffset)); } catch {}
-  }, [toolbarOffset]);
-
-  const onDragStart = (e: React.PointerEvent) => {
-    e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      baseX: toolbarOffset.x,
-      baseY: toolbarOffset.y,
-    };
-  };
-  const onDragMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    setToolbarOffset({
-      x: dragRef.current.baseX + (e.clientX - dragRef.current.startX),
-      y: dragRef.current.baseY + (e.clientY - dragRef.current.startY),
+  }, []);
+  const onRenameWorkspace = useCallback((id: string, name: string) => {
+    setStore((prev) => {
+      const next = renameWorkspace(prev, id, name);
+      saveStore(next);
+      return next;
     });
-  };
-  const onDragEnd = (e: React.PointerEvent) => {
-    if (dragRef.current) {
-      try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+  }, []);
+  const onDeleteWorkspace = useCallback((id: string) => {
+    setStore((prev) => {
+      const next = deleteWorkspace(prev, id);
+      saveStore(next);
+      return next;
+    });
+  }, []);
+  const onSwitchWorkspace = useCallback((id: string) => {
+    setStore((prev) => {
+      const next = switchWorkspace(prev, id);
+      saveStore(next);
+      return next;
+    });
+  }, []);
+  const onDuplicateWorkspace = useCallback((id: string) => {
+    setStore((prev) => {
+      const next = duplicateWorkspace(prev, id);
+      saveStore(next);
+      return next;
+    });
+  }, []);
+
+  // ===== Sidebar collapsed state =====
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
     }
-    dragRef.current = null;
-  };
-  const resetToolbarPos = () => setToolbarOffset({ x: 0, y: 0 });
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? "1" : "0");
+    } catch {}
+  }, [sidebarCollapsed]);
+
+  const selectedNode = useMemo(
+    () => (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) ?? null : null),
+    [nodes, selectedNodeId],
+  );
+
+  const workspaceList = useMemo(
+    () => store.workspaces.map((w) => ({ id: w.id, name: w.name })),
+    [store.workspaces],
+  );
 
   return (
     <div className="h-screen w-full flex flex-col bg-[#0a0a14] relative">
       {/* Top header */}
-      <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border bg-card/50 backdrop-blur z-20">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border bg-card/50 backdrop-blur z-30">
+        <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/"
-            className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0"
             data-testid="link-back-dashboard"
-            title="العودة إلى لوحة التحكم"
+            title="Back to dashboard"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div>
-            <h1 className="text-base font-bold text-foreground tracking-tight">Nodes</h1>
-            <p className="text-[11px] text-muted-foreground">محرر مرئي لتوليد الصور بالذكاء الاصطناعي</p>
+          <div className="min-w-0">
+            <h1 className="text-sm font-bold text-foreground tracking-tight truncate">Nodes Editor</h1>
+            <p className="text-[10.5px] text-muted-foreground truncate">
+              <span className="text-foreground/80 font-medium">{current.name}</span>
+              <span className="mx-1.5 text-muted-foreground/40">·</span>
+              Visual AI image workflow
+            </p>
           </div>
         </div>
         <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground/70">
@@ -444,121 +655,83 @@ function NodesEditorInner() {
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" /> Reference
           </span>
           <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Instructions
+          </span>
+          <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-violet-500" /> Generate
           </span>
-          <span className="text-[10px] text-muted-foreground/50">دبل كليك على وصلة لفصلها · أو اسحب طرفها</span>
         </div>
       </div>
 
-      {/* Canvas */}
-      <div className="flex-1 min-h-0 relative">
-        <ReactFlow
-          nodes={decoratedNodes}
+      {/* Body: sidebar + canvas */}
+      <div className="flex-1 min-h-0 flex relative">
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+          workspaces={workspaceList}
+          currentWorkspaceId={current.id}
+          onSwitchWorkspace={onSwitchWorkspace}
+          onCreateWorkspace={onCreateWorkspace}
+          onRenameWorkspace={onRenameWorkspace}
+          onDeleteWorkspace={onDeleteWorkspace}
+          onDuplicateWorkspace={onDuplicateWorkspace}
+          onAddImage={addImageNode}
+          onAddPrompt={addPromptNode}
+          onAddGenerate={addGenerateNode}
+          onResetCanvas={resetCanvas}
+          selectedNode={selectedNode}
+          onUpdateNodeData={updateNodeData}
+          onDeleteNode={deleteNode}
+          onDuplicateNode={duplicateNode}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onEdgeDoubleClick={onEdgeDoubleClick}
-          onReconnect={onReconnect}
-          onReconnectStart={onReconnectStart}
-          onReconnectEnd={onReconnectEnd}
-          edgesReconnectable={true}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          colorMode="dark"
-          proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ animated: true, style: { strokeWidth: 1.5 } }}
-        >
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#1f2233" />
-          <Controls className="!bg-card !border-border" position="top-right" />
-          <MiniMap
-            pannable
-            zoomable
-            position="bottom-right"
-            className="!bg-card !border-border"
-            maskColor="rgba(0,0,0,0.6)"
-            nodeColor={(n) => {
-              if (n.type === "imageInput") return "#06b6d4";
-              if (n.type === "prompt") return "#f59e0b";
-              if (n.type === "generateImage") return "#8b5cf6";
-              return "#6b7280";
-            }}
-          />
-        </ReactFlow>
+          onDeleteEdge={deleteEdge}
+        />
 
-        {/* Floating bottom toolbar */}
-        <div
-          className="absolute bottom-6 left-1/2 z-30 select-none"
-          style={{ transform: `translate(calc(-50% + ${toolbarOffset.x}px), ${toolbarOffset.y}px)` }}
-          data-testid="floating-toolbar"
-        >
-          <div className="flex items-stretch rounded-2xl border border-white/10 bg-[#0f111c]/85 backdrop-blur-xl shadow-2xl shadow-black/60 overflow-hidden">
-            {/* Drag handle */}
-            <button
-              onPointerDown={onDragStart}
-              onPointerMove={onDragMove}
-              onPointerUp={onDragEnd}
-              onPointerCancel={onDragEnd}
-              onDoubleClick={resetToolbarPos}
-              className="flex items-center justify-center px-2 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground hover:bg-white/5 transition-colors"
-              title="اسحب للتحريك · انقر مزدوج لإعادة الموضع"
-              data-testid="toolbar-drag-handle"
-            >
-              <GripHorizontal className="w-4 h-4" />
-            </button>
-
-            <div
-              className="grid transition-[grid-template-columns,opacity] duration-200 ease-out"
-              style={{ gridTemplateColumns: collapsed ? "0fr" : "1fr" }}
-            >
-              <div className="overflow-hidden">
-                <div className={`flex items-center gap-1 px-2 py-1.5 ${collapsed ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
-                  <ToolbarButton onClick={addImageNode} icon={<ImagePlus className="w-3.5 h-3.5 text-cyan-400" />} label="صورة" testId="button-add-image-node" />
-                  <ToolbarButton onClick={addPromptNode} icon={<FileText className="w-3.5 h-3.5 text-amber-400" />} label="تعليمات" testId="button-add-prompt-node" />
-                  <ToolbarButton onClick={addGenerateNode} icon={<Sparkles className="w-3.5 h-3.5 text-violet-400" />} label="توليد" testId="button-add-generate-node" />
-                  <div className="w-px h-5 bg-white/10 mx-0.5" />
-                  <ToolbarButton onClick={resetCanvas} icon={<RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />} label="إعادة" testId="button-reset-canvas" />
-                </div>
-              </div>
-            </div>
-
-            {/* Collapse / expand */}
-            <button
-              onClick={() => setCollapsed((c) => !c)}
-              className="flex items-center justify-center px-3 border-l border-white/10 text-foreground/70 hover:text-foreground hover:bg-white/5 transition-colors"
-              title={collapsed ? "توسيع القائمة" : "تصغير القائمة"}
-              data-testid="toolbar-toggle"
-            >
-              {collapsed ? <Plus className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
-            </button>
-          </div>
+        {/* Canvas */}
+        <div className="flex-1 min-w-0 relative">
+          <ReactFlow
+            nodes={decoratedNodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onEdgeDoubleClick={onEdgeDoubleClick}
+            onReconnect={onReconnect}
+            onReconnectStart={onReconnectStart}
+            onReconnectEnd={onReconnectEnd}
+            onMoveEnd={(_e, vp) => persistViewport(vp)}
+            onPaneClick={() => setSelectedNodeId(null)}
+            edgesReconnectable={true}
+            nodeTypes={nodeTypes}
+            defaultViewport={lastViewport.current}
+            fitView={!lastViewport.current}
+            fitViewOptions={{ padding: 0.2 }}
+            colorMode="dark"
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{ animated: true, style: { strokeWidth: 1.5 } }}
+            minZoom={0.2}
+            maxZoom={3}
+            deleteKeyCode={null}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#1f2233" />
+            <MiniMap
+              pannable
+              zoomable
+              position="bottom-right"
+              className="!bg-card !border-border"
+              maskColor="rgba(0,0,0,0.6)"
+              nodeColor={(n) => {
+                if (n.type === "imageInput") return "#06b6d4";
+                if (n.type === "prompt") return "#f59e0b";
+                if (n.type === "generateImage") return "#8b5cf6";
+                return "#6b7280";
+              }}
+            />
+          </ReactFlow>
+          <CanvasControls />
         </div>
       </div>
     </div>
-  );
-}
-
-function ToolbarButton({
-  onClick,
-  icon,
-  label,
-  testId,
-}: {
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  testId?: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/5 text-[11px] text-foreground/85 hover:text-foreground transition-colors whitespace-nowrap"
-      data-testid={testId}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }
 
