@@ -8,6 +8,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   reconnectEdge,
+  useReactFlow,
   type Node,
   type Edge,
   type NodeTypes,
@@ -19,7 +20,14 @@ import {
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft } from "lucide-react";
+import {
+  ArrowLeft,
+  Image as ImageIcon,
+  FileText,
+  Sparkles,
+  SlidersHorizontal,
+  Palette,
+} from "lucide-react";
 import { Link } from "wouter";
 import ImageInputNode from "./ImageInputNode";
 import PromptNode from "./PromptNode";
@@ -59,6 +67,23 @@ import type { WorkspaceStore } from "./types";
 const SIDEBAR_COLLAPSED_KEY = "nodes-editor-sidebar-collapsed";
 
 function NodesEditorInner() {
+  // Ensure dark theme is active on this page (the editor lives outside <Layout/>
+  // which is the only place that adds the `dark` class). Without this, the
+  // theme tokens (text-foreground, etc.) resolve to dark text on the editor's
+  // dark background and become unreadable.
+  useEffect(() => {
+    const html = document.documentElement;
+    const had = html.classList.contains("dark");
+    if (!had) html.classList.add("dark");
+    return () => {
+      // Only remove if we were the ones who added it.
+      if (!had) html.classList.remove("dark");
+    };
+  }, []);
+
+  const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
+  const { screenToFlowPosition } = useReactFlow();
+
   // ===== Workspace store =====
   const [store, setStore] = useState<WorkspaceStore>(() => loadStore());
   const current = getCurrentWorkspace(store);
@@ -697,83 +722,98 @@ function NodesEditorInner() {
     [edges, persist],
   );
 
-  const addImageNode = useCallback(() => {
-    const id = nextId("img");
-    const count = nodes.filter((n) => n.type === "imageInput").length + 1;
-    insertNode({
-      id,
-      type: "imageInput",
-      position: { x: 100 + Math.random() * 80, y: 100 + Math.random() * 220 },
-      data: { imageDataUrl: null, filename: null, label: `Reference ${count}` },
-    });
-  }, [insertNode, nodes]);
+  const addImageNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("img");
+      const count = nodes.filter((n) => n.type === "imageInput").length + 1;
+      insertNode({
+        id,
+        type: "imageInput",
+        position: at ?? { x: 100 + Math.random() * 80, y: 100 + Math.random() * 220 },
+        data: { imageDataUrl: null, filename: null, label: `Reference ${count}` },
+      });
+    },
+    [insertNode, nodes],
+  );
 
-  const addPromptNode = useCallback(() => {
-    const id = nextId("prompt");
-    insertNode({
-      id,
-      type: "prompt",
-      position: { x: 420 + Math.random() * 60, y: 220 + Math.random() * 80 },
-      data: { text: "" },
-    });
-  }, [insertNode]);
+  const addPromptNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("prompt");
+      insertNode({
+        id,
+        type: "prompt",
+        position: at ?? { x: 420 + Math.random() * 60, y: 220 + Math.random() * 80 },
+        data: { text: "" },
+      });
+    },
+    [insertNode],
+  );
 
-  const addGenerateNode = useCallback(() => {
-    const id = nextId("gen");
-    insertNode({
-      id,
-      type: "generateImage",
-      position: { x: 720 + Math.random() * 60, y: 160 + Math.random() * 80 },
-      data: {
-        prompt: "",
-        status: "idle",
-        resultUrl: null,
-        error: null,
-        size: "1024x1024",
-        quality: "auto",
-        background: "auto",
-        model: "auto",
-        label: "Generate",
-      },
-    });
-  }, [insertNode]);
+  const addGenerateNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("gen");
+      insertNode({
+        id,
+        type: "generateImage",
+        position: at ?? { x: 720 + Math.random() * 60, y: 160 + Math.random() * 80 },
+        data: {
+          prompt: "",
+          status: "idle",
+          resultUrl: null,
+          error: null,
+          size: "1024x1024",
+          quality: "auto",
+          background: "auto",
+          model: "auto",
+          label: "Generate",
+        },
+      });
+    },
+    [insertNode],
+  );
 
-  const addSettingsNode = useCallback(() => {
-    const id = nextId("settings");
-    insertNode({
-      id,
-      type: "settings",
-      position: { x: 360 + Math.random() * 60, y: 460 + Math.random() * 80 },
-      data: {
-        label: "Settings",
-        model: "auto",
-        size: "1024x1024",
-        quality: "auto",
-        background: "auto",
-        referenceImageDataUrl: null,
-        referenceImageFilename: null,
-        textReference: "",
-        unifiedPrompt: "",
-      } as SettingsNodeData,
-    });
-  }, [insertNode]);
+  const addSettingsNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("settings");
+      insertNode({
+        id,
+        type: "settings",
+        position: at ?? { x: 360 + Math.random() * 60, y: 460 + Math.random() * 80 },
+        data: {
+          label: "Settings",
+          model: "auto",
+          size: "1024x1024",
+          quality: "auto",
+          background: "auto",
+          referenceImageDataUrl: null,
+          referenceImageFilename: null,
+          textReference: "",
+          unifiedPrompt: "",
+        } as SettingsNodeData,
+      });
+    },
+    [insertNode],
+  );
 
-  const addStyleExtractorNode = useCallback(() => {
-    const id = nextId("style");
-    insertNode({
-      id,
-      type: "styleExtractor",
-      position: { x: 420 + Math.random() * 60, y: 320 + Math.random() * 80 },
-      data: {
-        label: "Style Extractor",
-        text: "",
-        status: "idle",
-        error: null,
-        sourceImageDataUrl: null,
-        sourceLabel: null,
-      } as Omit<StyleExtractorNodeData, "onExtract" | "onTextChange">,
-    });
-  }, [insertNode]);
+  const addStyleExtractorNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("style");
+      insertNode({
+        id,
+        type: "styleExtractor",
+        position: at ?? { x: 420 + Math.random() * 60, y: 320 + Math.random() * 80 },
+        data: {
+          label: "Style Extractor",
+          text: "",
+          status: "idle",
+          error: null,
+          sourceImageDataUrl: null,
+          sourceLabel: null,
+        } as Omit<StyleExtractorNodeData, "onExtract" | "onTextChange">,
+      });
+    },
+    [insertNode],
+  );
 
   const deleteNode = useCallback(
     (nodeId: string) => {
@@ -915,6 +955,110 @@ function NodesEditorInner() {
     [store.workspaces],
   );
 
+  // ===== Pane context menu (add-node dropdown on right-click / double-click) =====
+  const [paneMenu, setPaneMenu] = useState<{
+    screenX: number;
+    screenY: number;
+    flow: { x: number; y: number };
+  } | null>(null);
+
+  const openPaneMenu = useCallback(
+    (clientX: number, clientY: number) => {
+      const wrap = reactFlowWrapper.current;
+      const rect = wrap?.getBoundingClientRect();
+      const screenX = rect ? clientX - rect.left : clientX;
+      const screenY = rect ? clientY - rect.top : clientY;
+      const flow = screenToFlowPosition({ x: clientX, y: clientY });
+      setPaneMenu({ screenX, screenY, flow });
+    },
+    [screenToFlowPosition],
+  );
+
+  const onPaneContextMenu = useCallback(
+    (event: React.MouseEvent | MouseEvent) => {
+      event.preventDefault();
+      openPaneMenu(event.clientX, event.clientY);
+    },
+    [openPaneMenu],
+  );
+
+  const onPaneDoubleClick = useCallback(
+    (event: React.MouseEvent) => {
+      // Only trigger when the user double-clicks empty pane, not on a node.
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest(".react-flow__node")) return;
+      openPaneMenu(event.clientX, event.clientY);
+    },
+    [openPaneMenu],
+  );
+
+  const closePaneMenu = useCallback(() => setPaneMenu(null), []);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!paneMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePaneMenu();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paneMenu, closePaneMenu]);
+
+  type PaneMenuItem = {
+    key: string;
+    label: string;
+    icon: typeof ImageIcon;
+    accentClass: string;
+    add: (at: { x: number; y: number }) => void;
+  };
+
+  const paneMenuItems: PaneMenuItem[] = useMemo(
+    () => [
+      {
+        key: "imageInput",
+        label: "Reference Image",
+        icon: ImageIcon,
+        accentClass: "text-sky-300",
+        add: addImageNode,
+      },
+      {
+        key: "prompt",
+        label: "Prompt",
+        icon: FileText,
+        accentClass: "text-amber-200",
+        add: addPromptNode,
+      },
+      {
+        key: "generateImage",
+        label: "Generate Image",
+        icon: Sparkles,
+        accentClass: "text-violet-300",
+        add: addGenerateNode,
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        icon: SlidersHorizontal,
+        accentClass: "text-emerald-300",
+        add: addSettingsNode,
+      },
+      {
+        key: "styleExtractor",
+        label: "Style Extractor",
+        icon: Palette,
+        accentClass: "text-fuchsia-300",
+        add: addStyleExtractorNode,
+      },
+    ],
+    [
+      addImageNode,
+      addPromptNode,
+      addGenerateNode,
+      addSettingsNode,
+      addStyleExtractorNode,
+    ],
+  );
+
   return (
     <div className="h-screen w-full flex flex-col bg-[#0b0d12] relative">
       {/* Top header */}
@@ -988,7 +1132,11 @@ function NodesEditorInner() {
         />
 
         {/* Canvas */}
-        <div className="flex-1 min-w-0 relative">
+        <div
+          ref={reactFlowWrapper}
+          className="flex-1 min-w-0 relative"
+          onDoubleClick={onPaneDoubleClick}
+        >
           <ReactFlow
             nodes={decoratedNodes}
             edges={edges}
@@ -1000,7 +1148,11 @@ function NodesEditorInner() {
             onReconnectStart={onReconnectStart}
             onReconnectEnd={onReconnectEnd}
             onMoveEnd={(_e, vp) => persistViewport(vp)}
-            onPaneClick={() => setSelectedNodeId(null)}
+            onPaneClick={() => {
+              setSelectedNodeId(null);
+              closePaneMenu();
+            }}
+            onPaneContextMenu={onPaneContextMenu}
             edgesReconnectable={true}
             nodeTypes={nodeTypes}
             defaultViewport={lastViewport.current}
@@ -1032,6 +1184,48 @@ function NodesEditorInner() {
             />
           </ReactFlow>
           <CanvasControls />
+
+          {/* Add-node dropdown menu shown on right-click or double-click of empty canvas */}
+          {paneMenu && (
+            <div
+              className="absolute inset-0 z-40"
+              onClick={closePaneMenu}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                closePaneMenu();
+              }}
+            >
+              <div
+                className="absolute min-w-[220px] rounded-xl border border-white/10 bg-[#13151c]/95 backdrop-blur-xl shadow-[0_12px_40px_-8px_rgba(0,0,0,0.8)] py-1.5 text-foreground"
+                style={{
+                  left: Math.min(paneMenu.screenX, (reactFlowWrapper.current?.clientWidth ?? 0) - 240),
+                  top: Math.min(paneMenu.screenY, (reactFlowWrapper.current?.clientHeight ?? 0) - 280),
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-white/40">
+                  Add node
+                </div>
+                {paneMenuItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-white/85 hover:bg-white/10 transition-colors text-left"
+                      onClick={() => {
+                        item.add(paneMenu.flow);
+                        closePaneMenu();
+                      }}
+                    >
+                      <Icon className={`w-4 h-4 ${item.accentClass}`} />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
