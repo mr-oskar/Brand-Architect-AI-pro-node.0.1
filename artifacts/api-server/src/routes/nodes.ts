@@ -1,11 +1,15 @@
 import { Router, type IRouter } from "express";
+import sharp from "sharp";
+import { Buffer } from "node:buffer";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 import { asyncHandler } from "../lib/asyncHandler";
 import {
   generateImageWithReferences,
+  openai,
   type ImageSize,
   type ImageQuality,
   type ImageBackground,
+  type ImageModel,
 } from "@workspace/integrations-openai-ai-server";
 import { uploadImageBuffer } from "../lib/imageStorage";
 import { chargeCredits, InsufficientCreditsError } from "../lib/credits";
@@ -18,13 +22,44 @@ const MAX_PROMPT_LEN = 4000;
 const VALID_SIZES: ReadonlyArray<ImageSize> = ["1024x1024", "1024x1536", "1536x1024", "auto"];
 const VALID_QUALITIES: ReadonlyArray<ImageQuality> = ["low", "medium", "high", "auto"];
 const VALID_BACKGROUNDS: ReadonlyArray<ImageBackground> = ["transparent", "opaque", "auto"];
+const VALID_MODELS: ReadonlyArray<ImageModel> = ["auto", "gpt-image-1", "gemini-2.5-flash-image"];
+
+/** Parse "1024x1536" into [width, height]. Returns null for "auto" or invalid. */
+function parseSize(size: ImageSize): [number, number] | null {
+  if (size === "auto") return null;
+  const m = /^(\d+)x(\d+)$/.exec(size);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2])];
+}
+
+/**
+ * Guarantee the output matches the requested aspect ratio. If the model returned
+ * a buffer that doesn't match (common with Gemini), we cover-crop & resize to the
+ * exact pixel dimensions so the user always gets the size they asked for.
+ */
+async function enforceSize(buf: Buffer, size: ImageSize): Promise<Buffer> {
+  const target = parseSize(size);
+  if (!target) return buf;
+  const [tw, th] = target;
+  try {
+    const meta = await sharp(buf).metadata();
+    if (meta.width === tw && meta.height === th) return buf;
+    return await sharp(buf)
+      .resize(tw, th, { fit: "cover", position: "attention" })
+      .png()
+      .toBuffer();
+  } catch (err) {
+    logger.warn({ err }, "[nodes] enforceSize failed; returning original buffer");
+    return buf;
+  }
+}
 
 router.post(
   "/nodes/generate-image",
   requireAuth,
   asyncHandler(async (req, res) => {
     const userId = (req as AuthRequest).userId;
-    const { prompt, referenceImages, size, quality, background } = req.body ?? {};
+    const { prompt, referenceImages, size, quality, background, model } = req.body ?? {};
 
     if (typeof prompt !== "string" || !prompt.trim()) {
       res.status(400).json({ error: "Prompt is required" });
@@ -62,6 +97,11 @@ router.post(
         ? (background as ImageBackground)
         : undefined;
 
+    const requestedModel: ImageModel | undefined =
+      typeof model === "string" && VALID_MODELS.includes(model as ImageModel)
+        ? (model as ImageModel)
+        : undefined;
+
     try {
       await chargeCredits(userId, "design.generate-image");
     } catch (err) {
@@ -77,14 +117,87 @@ router.post(
         size: requestedSize,
         quality: requestedQuality,
         background: requestedBackground,
+        model: requestedModel,
       });
-      const objectPath = await uploadImageBuffer(buf, "image/png");
+      const enforced = await enforceSize(buf, requestedSize);
+      const objectPath = await uploadImageBuffer(enforced, "image/png");
       const url = `/api${objectPath.replace(/^\/objects\//, "/storage/images/objects/")}`;
       res.json({ url });
     } catch (err: any) {
       logger.error({ err }, "[nodes] image generation failed");
       const message = err?.message || "Image generation failed";
       res.status(500).json({ error: message });
+    }
+  }),
+);
+
+const STYLE_EXTRACT_SYSTEM = `You are an expert visual prompt engineer. Given an image, write a single, dense paragraph describing it as a professional image-generation prompt that another AI could use to recreate the same visual style and composition.
+
+Cover, in flowing prose (no headings, no bullets):
+- Subject and composition
+- Art style / medium (photo, illustration, 3D render, etc.)
+- Color palette (specific hues)
+- Lighting (direction, quality, mood)
+- Texture, materials, finish
+- Camera / framing (angle, focal length, depth of field) when applicable
+- Mood and overall atmosphere
+
+Keep it under 180 words. Do not mention the source image — write the prompt as if instructing the model from scratch.`;
+
+router.post(
+  "/nodes/extract-style",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = (req as AuthRequest).userId;
+    const { imageDataUrl } = req.body ?? {};
+
+    if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
+      res.status(400).json({ error: "imageDataUrl must be a base64 data URL" });
+      return;
+    }
+    if (imageDataUrl.length > 12 * 1024 * 1024) {
+      res.status(400).json({ error: "Image is too large (max ~9 MB)" });
+      return;
+    }
+
+    try {
+      await chargeCredits(userId, "design.generate-image");
+    } catch (err) {
+      if (err instanceof InsufficientCreditsError) {
+        res.status(402).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: 500,
+        temperature: 0.4,
+        messages: [
+          { role: "system", content: STYLE_EXTRACT_SYSTEM },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this image and produce a professional image-generation prompt as described.",
+              },
+              { type: "image_url", image_url: { url: imageDataUrl } },
+            ],
+          },
+        ],
+      });
+      const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
+      if (!text) {
+        res.status(500).json({ error: "Model returned no text" });
+        return;
+      }
+      res.json({ prompt: text });
+    } catch (err: any) {
+      logger.error({ err }, "[nodes] style extraction failed");
+      res.status(500).json({ error: err?.message || "Style extraction failed" });
     }
   }),
 );

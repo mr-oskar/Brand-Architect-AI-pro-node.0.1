@@ -22,15 +22,21 @@ import {
   RectangleVertical,
   RectangleHorizontal,
   Wand2,
+  SlidersHorizontal,
+  Palette,
+  Upload,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
+  GenerateModel,
   GenerateNodeBackground,
   GenerateNodeData,
   GenerateNodeQuality,
   GenerateNodeSize,
   ImageNodeData,
   PromptNodeData,
+  SettingsNodeData,
+  StyleExtractorNodeData,
 } from "./types";
 
 type SidebarSection = "workspaces" | "palette" | "inspector";
@@ -50,6 +56,8 @@ export type SidebarProps = {
   onAddImage: () => void;
   onAddPrompt: () => void;
   onAddGenerate: () => void;
+  onAddSettings: () => void;
+  onAddStyleExtractor: () => void;
   onResetCanvas: () => void;
 
   selectedNode: Node | null;
@@ -364,6 +372,22 @@ export default function Sidebar(props: SidebarProps) {
                   description="Run AI to create an image"
                   testId="button-add-generate-node"
                 />
+                <PaletteButton
+                  onClick={props.onAddSettings}
+                  dot="bg-emerald-300 shadow-[0_0_8px_2px_rgba(110,231,183,0.45)]"
+                  icon={<SlidersHorizontal className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
+                  title="Settings"
+                  description="Reusable model + size + refs preset"
+                  testId="button-add-settings-node"
+                />
+                <PaletteButton
+                  onClick={props.onAddStyleExtractor}
+                  dot="bg-fuchsia-300 shadow-[0_0_8px_2px_rgba(240,171,252,0.45)]"
+                  icon={<Palette className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
+                  title="Style extractor"
+                  description="Image → professional style prompt"
+                  testId="button-add-style-extractor-node"
+                />
               </div>
             </div>
 
@@ -530,6 +554,8 @@ function InspectorPanel({
       {node.type === "imageInput" && <ImageNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "prompt" && <PromptNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "generateImage" && <GenerateNodeInspector node={node} onUpdate={onUpdate} />}
+      {node.type === "settings" && <SettingsNodeInspector node={node} onUpdate={onUpdate} />}
+      {node.type === "styleExtractor" && <StyleExtractorNodeInspector node={node} onUpdate={onUpdate} />}
 
       {/* Position */}
       <div className="border-t border-white/[0.05] pt-3">
@@ -610,6 +636,10 @@ function NodeKindBadge({ type }: { type?: string }) {
       return { Icon: FileText, dot: "bg-amber-300 shadow-[0_0_6px_1px_rgba(252,211,77,0.45)]" };
     if (type === "generateImage")
       return { Icon: Sparkles, dot: "bg-[#a78bfa] shadow-[0_0_6px_1px_rgba(167,139,250,0.45)]" };
+    if (type === "settings")
+      return { Icon: SlidersHorizontal, dot: "bg-emerald-300 shadow-[0_0_6px_1px_rgba(110,231,183,0.45)]" };
+    if (type === "styleExtractor")
+      return { Icon: Palette, dot: "bg-fuchsia-300 shadow-[0_0_6px_1px_rgba(240,171,252,0.45)]" };
     return { Icon: Layers, dot: "bg-white/30" };
   })();
   const { Icon, dot } = conf;
@@ -626,6 +656,10 @@ function nodeTitle(node: Node): string {
   if (node.type === "prompt") return "Instructions";
   if (node.type === "generateImage")
     return ((node.data as GenerateNodeData).label as string) || "Generate image";
+  if (node.type === "settings")
+    return ((node.data as SettingsNodeData).label as string) || "Settings";
+  if (node.type === "styleExtractor")
+    return ((node.data as StyleExtractorNodeData).label as string) || "Style extractor";
   return node.type ?? "Node";
 }
 
@@ -839,5 +873,236 @@ function NumberField({
         data-testid={testId}
       />
     </label>
+  );
+}
+
+const MODEL_OPTIONS: { value: GenerateModel; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "gpt-image-1", label: "GPT Image" },
+  { value: "gemini-2.5-flash-image", label: "Gemini Flash" },
+];
+
+function SettingsNodeInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const d = node.data as SettingsNodeData;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (file: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const reader = new FileReader();
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      onUpdate(node.id, {
+        referenceImageDataUrl: dataUrl,
+        referenceImageFilename: file.name,
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2.5">
+      <Field label="Label">
+        <input
+          value={d.label ?? "Settings"}
+          onChange={(e) => onUpdate(node.id, { label: e.target.value })}
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20"
+          data-testid="inspector-settings-label"
+        />
+      </Field>
+
+      <Field label="Model">
+        <div className="grid grid-cols-3 gap-1">
+          {MODEL_OPTIONS.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => onUpdate(node.id, { model: m.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                (d.model ?? "auto") === m.value
+                  ? "border-emerald-400/55 bg-emerald-400/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-settings-model-${m.value}`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Aspect">
+        <div className="grid grid-cols-4 gap-1">
+          {SIZE_PRESETS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => onUpdate(node.id, { size: s.value })}
+              className={`flex flex-col items-center gap-1 py-1.5 rounded-md border text-[9.5px] transition-all ${
+                (d.size ?? "1024x1024") === s.value
+                  ? "border-emerald-400/55 bg-emerald-400/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-settings-size-${s.value}`}
+            >
+              <s.Icon className="w-3 h-3" strokeWidth={1.5} />
+              <span>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Quality">
+        <div className="grid grid-cols-4 gap-1">
+          {QUALITY_OPTIONS.map((q) => (
+            <button
+              key={q.value}
+              onClick={() => onUpdate(node.id, { quality: q.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                (d.quality ?? "auto") === q.value
+                  ? "border-emerald-400/55 bg-emerald-400/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-settings-quality-${q.value}`}
+            >
+              {q.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Background">
+        <div className="grid grid-cols-3 gap-1">
+          {BG_OPTIONS.map((b) => (
+            <button
+              key={b.value}
+              onClick={() => onUpdate(node.id, { background: b.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                (d.background ?? "auto") === b.value
+                  ? "border-emerald-400/55 bg-emerald-400/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-settings-bg-${b.value}`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Reference image">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+          data-testid="inspector-settings-ref-input"
+        />
+        {d.referenceImageDataUrl ? (
+          <div className="space-y-1.5">
+            <img
+              src={d.referenceImageDataUrl}
+              alt=""
+              className="w-full h-24 object-cover rounded-md border border-white/[0.06]"
+            />
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 text-[10px] text-foreground/85 px-2 py-1 rounded-md border border-white/[0.06] hover:border-white/15 hover:bg-white/5 transition-colors"
+              >
+                Replace
+              </button>
+              <button
+                onClick={() => onUpdate(node.id, { referenceImageDataUrl: null, referenceImageFilename: null })}
+                className="text-[10px] text-red-300/85 px-2 py-1 rounded-md border border-white/[0.06] hover:border-red-300/30 hover:bg-red-500/10 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="text-[9.5px] text-muted-foreground/65 truncate">{d.referenceImageFilename || "—"}</div>
+          </div>
+        ) : (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-2 rounded-md border border-dashed border-white/[0.08] text-muted-foreground/70 hover:text-foreground hover:border-white/20 hover:bg-white/[0.02] transition-colors text-[10.5px]"
+            data-testid="inspector-settings-ref-upload"
+          >
+            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" strokeWidth={1.5} />}
+            {uploading ? "Uploading…" : "Upload image"}
+          </button>
+        )}
+      </Field>
+
+      <Field label="Text reference">
+        <textarea
+          value={d.textReference ?? ""}
+          onChange={(e) => onUpdate(node.id, { textReference: e.target.value })}
+          rows={3}
+          placeholder="Brand voice, palette, do/don't list…"
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1.5 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/20 resize-none"
+          data-testid="inspector-settings-text-ref"
+        />
+      </Field>
+
+      <Field label="Unified prompt">
+        <textarea
+          value={d.unifiedPrompt ?? ""}
+          onChange={(e) => onUpdate(node.id, { unifiedPrompt: e.target.value })}
+          rows={4}
+          placeholder="Prefix injected before every connected prompt."
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1.5 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/20 resize-none"
+          data-testid="inspector-settings-unified-prompt"
+        />
+      </Field>
+    </div>
+  );
+}
+
+function StyleExtractorNodeInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const d = node.data as StyleExtractorNodeData;
+  return (
+    <div className="space-y-2.5">
+      <Field label="Label">
+        <input
+          value={d.label ?? "Style extractor"}
+          onChange={(e) => onUpdate(node.id, { label: e.target.value })}
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20"
+          data-testid="inspector-style-label"
+        />
+      </Field>
+
+      <Field label="Extracted prompt">
+        <textarea
+          value={d.text ?? ""}
+          onChange={(e) => onUpdate(node.id, { text: e.target.value })}
+          rows={8}
+          placeholder="Connect an image and click Extract on the node."
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1.5 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/20 resize-none"
+          data-testid="inspector-style-text"
+        />
+      </Field>
+
+      <div className="text-[10px] text-muted-foreground/65 leading-relaxed">
+        Status: <span className="font-mono text-foreground/80">{d.status ?? "idle"}</span>
+        {d.error && <div className="text-red-300/85 mt-0.5">{d.error}</div>}
+      </div>
+    </div>
   );
 }

@@ -23,15 +23,18 @@ import {
   Wand2,
 } from "lucide-react";
 import type {
+  GenerateModel,
   GenerateNodeBackground,
   GenerateNodeData,
   GenerateNodeQuality,
   GenerateNodeSize,
+  SettingsNodeData,
 } from "./types";
 import ImageLightbox from "@/components/ImageLightbox";
 import { pushExport, type ExportTarget } from "@/lib/nodesExport";
 import { notifySuccess, notifyError } from "@/lib/apiError";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import NodeActions from "./NodeActions";
 
 const SEND_TARGETS: { key: ExportTarget; label: string; Icon: typeof Palette }[] = [
   { key: "design-studio", label: "Design Studio", Icon: Palette },
@@ -60,9 +63,17 @@ const BG_OPTIONS: { value: GenerateNodeBackground; label: string }[] = [
   { value: "transparent", label: "Transparent" },
 ];
 
+const MODEL_OPTIONS: { value: GenerateModel; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "gpt-image-1", label: "OpenAI" },
+  { value: "gemini-2.5-flash-image", label: "Gemini" },
+];
+
 export default function GenerateImageNode({ id, data, selected }: NodeProps) {
   const raw = (data ?? {}) as Partial<GenerateNodeData> & {
     onSettingsChange?: (id: string, patch: Partial<GenerateNodeData>) => void;
+    onDelete?: (id: string) => void;
+    onDuplicate?: (id: string) => void;
   };
   const d: GenerateNodeData = {
     prompt: raw.prompt ?? "",
@@ -73,11 +84,22 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
     size: raw.size ?? "1024x1024",
     quality: raw.quality ?? "auto",
     background: raw.background ?? "auto",
+    model: raw.model ?? "auto",
     label: raw.label ?? "Generate",
+    inheritedSettings: raw.inheritedSettings ?? null,
     onPromptChange: raw.onPromptChange ?? (() => {}),
     onRun: raw.onRun ?? (() => {}),
   };
   const onSettingsChange = raw.onSettingsChange ?? (() => {});
+  const onDelete = raw.onDelete ?? (() => {});
+  const onDuplicate = raw.onDuplicate ?? (() => {});
+
+  // Effective settings (settings node overrides local)
+  const inh: SettingsNodeData | null = d.inheritedSettings ?? null;
+  const effSize = inh?.size ?? d.size ?? "1024x1024";
+  const effQuality = inh?.quality ?? d.quality ?? "auto";
+  const effBackground = inh?.background ?? d.background ?? "auto";
+  const effModel = inh?.model ?? d.model ?? "auto";
 
   const isRunning = d.status === "running";
   const isDone = d.status === "done" && !!d.resultUrl;
@@ -164,7 +186,7 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
     setShowSend(false);
   };
 
-  const SizeIcon = SIZE_PRESETS.find((s) => s.value === d.size)?.Icon ?? Square;
+  const SizeIcon = SIZE_PRESETS.find((s) => s.value === effSize)?.Icon ?? Square;
 
   return (
     <>
@@ -182,20 +204,29 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
           className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-[#a78bfa]/55 to-transparent"
         />
 
+        <NodeActions nodeId={id} onDuplicate={onDuplicate} onDelete={onDelete} />
+
         {/* Connection handles */}
         <Handle
           type="target"
           position={Position.Left}
           id="references"
           className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-sky-400 hover:!w-3 hover:!h-3 transition-all"
-          style={{ top: "26%" }}
+          style={{ top: "20%" }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="prompt"
           className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-amber-300 hover:!w-3 hover:!h-3 transition-all"
-          style={{ top: "70%" }}
+          style={{ top: "55%" }}
+        />
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="settings"
+          className="!w-2.5 !h-2.5 !bg-[#0b0d12] !border-[1.5px] !border-emerald-300 hover:!w-3 hover:!h-3 transition-all"
+          style={{ top: "85%" }}
         />
 
         {/* Header */}
@@ -204,7 +235,23 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
           <span className="flex-1 text-[11px] font-medium text-foreground/95 tracking-tight truncate">
             {d.label}
           </span>
-          <span className="text-[9px] font-mono text-muted-foreground/55">5 CU</span>
+          {inh && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex items-center gap-0.5 text-[9px] font-medium text-emerald-300 bg-emerald-300/10 border border-emerald-300/30 rounded px-1 py-0.5"
+                  data-testid={`generate-inherited-badge-${id}`}
+                >
+                  <Sliders className="w-2 h-2" />
+                  <span>SET</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Settings inherited from "{inh.label}"
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <span className="text-[9px] font-mono text-foreground/65">5 CU</span>
 
           {/* Settings button */}
           <div ref={settingsMenuRef} className="relative">
@@ -226,19 +273,43 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
             </Tooltip>
             {showSettings && (
               <div
-                className="absolute top-7 right-0 w-60 rounded-xl border border-white/10 bg-[#13151c]/95 backdrop-blur-xl shadow-2xl shadow-black/70 z-30 overflow-hidden"
+                className="absolute top-7 right-0 w-64 rounded-xl border border-white/10 bg-[#13151c]/95 backdrop-blur-xl shadow-2xl shadow-black/70 z-30 overflow-hidden"
                 data-testid={`menu-settings-${id}`}
               >
                 <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
-                  <Sliders className="w-3 h-3 text-muted-foreground/80" />
-                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                  <Sliders className="w-3 h-3 text-foreground/85" />
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-foreground/85">
                     Model settings
                   </span>
+                  {inh && (
+                    <span className="ml-auto text-[9px] text-emerald-300 font-medium">
+                      Overridden by Settings node
+                    </span>
+                  )}
                 </div>
                 <div className="p-3 space-y-3">
+                  {/* Model */}
+                  <div>
+                    <div className="text-[9.5px] uppercase tracking-wider text-foreground/65 font-semibold mb-1.5">
+                      Model
+                    </div>
+                    <select
+                      value={d.model ?? "auto"}
+                      onChange={(e) => onSettingsChange(id, { model: e.target.value as GenerateModel })}
+                      disabled={!!inh}
+                      className="w-full text-[10.5px] bg-[#0f1117] border border-white/10 rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:border-[#7c5cff]/40 disabled:opacity-60 nodrag"
+                      data-testid={`select-generate-model-${id}`}
+                    >
+                      {MODEL_OPTIONS.map((m) => (
+                        <option key={m.value} value={m.value} className="bg-[#0f1117] text-foreground">
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   {/* Aspect / size */}
                   <div>
-                    <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/60 font-medium mb-1.5">
+                    <div className="text-[9.5px] uppercase tracking-wider text-foreground/65 font-semibold mb-1.5">
                       Aspect
                     </div>
                     <div className="grid grid-cols-4 gap-1">
@@ -246,10 +317,11 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
                         <button
                           key={s.value}
                           onClick={() => onSettingsChange(id, { size: s.value })}
-                          className={`flex flex-col items-center gap-1 py-1.5 rounded-lg border transition-all ${
-                            d.size === s.value
+                          disabled={!!inh}
+                          className={`flex flex-col items-center gap-1 py-1.5 rounded-lg border transition-all disabled:opacity-60 ${
+                            effSize === s.value
                               ? "border-[#7c5cff]/55 bg-[#7c5cff]/10 text-foreground"
-                              : "border-white/5 bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+                              : "border-white/[0.06] bg-white/[0.025] text-foreground/75 hover:border-white/20 hover:text-foreground"
                           }`}
                           data-testid={`settings-size-${s.value}`}
                         >
@@ -262,7 +334,7 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
 
                   {/* Quality */}
                   <div>
-                    <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/60 font-medium mb-1.5">
+                    <div className="text-[9.5px] uppercase tracking-wider text-foreground/65 font-semibold mb-1.5">
                       Quality
                     </div>
                     <div className="grid grid-cols-4 gap-1">
@@ -270,10 +342,11 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
                         <button
                           key={q.value}
                           onClick={() => onSettingsChange(id, { quality: q.value })}
-                          className={`py-1.5 rounded-lg border text-[9.5px] transition-all ${
-                            d.quality === q.value
+                          disabled={!!inh}
+                          className={`py-1.5 rounded-lg border text-[9.5px] transition-all disabled:opacity-60 ${
+                            effQuality === q.value
                               ? "border-[#7c5cff]/55 bg-[#7c5cff]/10 text-foreground"
-                              : "border-white/5 bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+                              : "border-white/[0.06] bg-white/[0.025] text-foreground/75 hover:border-white/20 hover:text-foreground"
                           }`}
                           data-testid={`settings-quality-${q.value}`}
                         >
@@ -285,7 +358,7 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
 
                   {/* Background */}
                   <div>
-                    <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/60 font-medium mb-1.5">
+                    <div className="text-[9.5px] uppercase tracking-wider text-foreground/65 font-semibold mb-1.5">
                       Background
                     </div>
                     <div className="grid grid-cols-3 gap-1">
@@ -293,10 +366,11 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
                         <button
                           key={b.value}
                           onClick={() => onSettingsChange(id, { background: b.value })}
-                          className={`py-1.5 rounded-lg border text-[9.5px] transition-all ${
-                            d.background === b.value
+                          disabled={!!inh}
+                          className={`py-1.5 rounded-lg border text-[9.5px] transition-all disabled:opacity-60 ${
+                            effBackground === b.value
                               ? "border-[#7c5cff]/55 bg-[#7c5cff]/10 text-foreground"
-                              : "border-white/5 bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+                              : "border-white/[0.06] bg-white/[0.025] text-foreground/75 hover:border-white/20 hover:text-foreground"
                           }`}
                           data-testid={`settings-bg-${b.value}`}
                         >
@@ -306,8 +380,8 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
                     </div>
                   </div>
 
-                  <div className="text-[9.5px] text-muted-foreground/55 leading-relaxed pt-1 border-t border-white/5">
-                    Quality and background only apply to OpenAI <span className="font-mono text-foreground/70">gpt-image-1</span>.
+                  <div className="text-[9.5px] text-foreground/65 leading-relaxed pt-1 border-t border-white/5">
+                    Quality and background only apply to OpenAI <span className="font-mono text-foreground/85">gpt-image-1</span>.
                     Gemini ignores them.
                   </div>
                 </div>
@@ -490,11 +564,11 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
           {/* Reference chips */}
           {d.references.length > 0 && (
             <div className="space-y-1">
-              <div className="flex items-center gap-1 text-[8.5px] uppercase tracking-wider text-muted-foreground/60 font-semibold">
+              <div className="flex items-center gap-1 text-[8.5px] uppercase tracking-wider text-foreground/70 font-semibold">
                 <AtSign className="w-2 h-2" />
                 <span>References</span>
                 {anyRefUploading && (
-                  <span className="ml-auto inline-flex items-center gap-1 text-[8.5px] text-amber-300/85 normal-case font-medium">
+                  <span className="ml-auto inline-flex items-center gap-1 text-[8.5px] text-amber-300 normal-case font-medium">
                     <Loader2 className="w-2 h-2 animate-spin" />
                     loading
                   </span>
@@ -544,38 +618,46 @@ export default function GenerateImageNode({ id, data, selected }: NodeProps) {
                 : "Describe the image, or connect references on the left."
             }
             rows={3}
-            className="w-full text-[11px] leading-relaxed bg-white/[0.02] border border-white/[0.06] rounded-xl px-2.5 py-2 text-foreground placeholder:text-muted-foreground/45 focus:outline-none focus:bg-white/[0.04] focus:border-[#7c5cff]/40 resize-none nodrag transition-colors"
+            className="w-full text-[11px] leading-relaxed bg-[#0f1117] border border-white/10 rounded-md px-2.5 py-2 text-foreground placeholder:text-foreground/40 focus:outline-none focus:border-[#7c5cff]/45 resize-none nodrag transition-colors"
             data-testid={`textarea-generate-prompt-${id}`}
           />
 
           {/* Compact settings strip */}
-          <div className="flex items-center gap-1.5 px-1 pt-0.5 text-[9.5px] text-muted-foreground/60">
+          <div className="flex items-center gap-1.5 px-1 pt-0.5 text-[9.5px] text-foreground/70">
             <button
               onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1 hover:text-foreground/85 transition-colors nodrag"
+              className="flex items-center gap-1 hover:text-foreground transition-colors nodrag"
               data-testid={`button-settings-summary-${id}`}
             >
               <SizeIcon className="w-2.5 h-2.5" strokeWidth={1.5} />
-              <span className="font-mono">{d.size}</span>
+              <span className="font-mono">{effSize}</span>
             </button>
-            <span className="text-muted-foreground/30">·</span>
+            <span className="text-foreground/40">·</span>
             <button
               onClick={() => setShowSettings(true)}
-              className="hover:text-foreground/85 transition-colors capitalize nodrag"
+              className="hover:text-foreground transition-colors capitalize nodrag"
             >
-              {d.quality}
+              {effQuality}
             </button>
-            {d.background !== "auto" && (
+            {effBackground !== "auto" && (
               <>
-                <span className="text-muted-foreground/30">·</span>
+                <span className="text-foreground/40">·</span>
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="hover:text-foreground/85 transition-colors capitalize nodrag"
+                  className="hover:text-foreground transition-colors capitalize nodrag"
                 >
-                  {d.background}
+                  {effBackground}
                 </button>
               </>
             )}
+            <span className="text-foreground/40">·</span>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="hover:text-foreground transition-colors nodrag"
+              title={`Model: ${effModel}`}
+            >
+              {effModel === "auto" ? "auto" : effModel === "gpt-image-1" ? "OpenAI" : "Gemini"}
+            </button>
           </div>
         </div>
 

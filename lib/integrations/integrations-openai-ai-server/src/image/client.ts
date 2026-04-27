@@ -7,19 +7,17 @@ const userKey = process.env.OPENAI_API_KEY;
 const proxyKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 const proxyBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
 
-const provider: "gemini" | "openai" = geminiKey ? "gemini" : "openai";
+const defaultProvider: "gemini" | "openai" = geminiKey ? "gemini" : "openai";
 
 let openaiClient: OpenAI | null = null;
-if (provider === "openai") {
-  if (userKey) {
-    openaiClient = new OpenAI({ apiKey: userKey, baseURL: process.env.OPENAI_BASE_URL || undefined });
-  } else if (proxyKey && proxyBaseUrl) {
-    openaiClient = new OpenAI({ apiKey: proxyKey, baseURL: proxyBaseUrl });
-  } else {
-    throw new Error(
-      "No image provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or provision the Replit OpenAI AI integration.",
-    );
-  }
+if (userKey) {
+  openaiClient = new OpenAI({ apiKey: userKey, baseURL: process.env.OPENAI_BASE_URL || undefined });
+} else if (proxyKey && proxyBaseUrl) {
+  openaiClient = new OpenAI({ apiKey: proxyKey, baseURL: proxyBaseUrl });
+} else if (defaultProvider === "openai") {
+  throw new Error(
+    "No image provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or provision the Replit OpenAI AI integration.",
+  );
 }
 
 export const openai = openaiClient ?? new OpenAI({ apiKey: "noop" });
@@ -27,11 +25,43 @@ export const openai = openaiClient ?? new OpenAI({ apiKey: "noop" });
 export type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
 export type ImageQuality = "low" | "medium" | "high" | "auto";
 export type ImageBackground = "transparent" | "opaque" | "auto";
+export type ImageModel = "auto" | "gpt-image-1" | "gemini-2.5-flash-image";
 
 export interface ImageGenOptions {
   size?: ImageSize;
   quality?: ImageQuality;
   background?: ImageBackground;
+  model?: ImageModel;
+}
+
+function resolveProvider(model?: ImageModel): "gemini" | "openai" {
+  if (!model || model === "auto") return defaultProvider;
+  if (model === "gpt-image-1") {
+    if (!openaiClient) {
+      throw new Error(
+        "OpenAI gpt-image-1 selected but no OpenAI key is configured. Set OPENAI_API_KEY or provision the Replit OpenAI integration.",
+      );
+    }
+    return "openai";
+  }
+  if (model === "gemini-2.5-flash-image") {
+    if (!geminiKey) {
+      throw new Error(
+        "Gemini 2.5 Flash Image selected but GEMINI_API_KEY is not set.",
+      );
+    }
+    return "gemini";
+  }
+  return defaultProvider;
+}
+
+/** Hint Gemini about the requested aspect by appending a clear instruction to the last text part. */
+function withAspectHint(prompt: string, size?: ImageSize): string {
+  if (!size || size === "auto") return prompt;
+  if (size === "1024x1024") return `${prompt}\n\nAspect ratio: square (1:1).`;
+  if (size === "1024x1536") return `${prompt}\n\nAspect ratio: portrait (2:3, taller than wide).`;
+  if (size === "1536x1024") return `${prompt}\n\nAspect ratio: landscape (3:2, wider than tall).`;
+  return prompt;
 }
 
 function getGeminiImageModel(): string {
@@ -76,10 +106,15 @@ async function geminiGenerateImage(parts: GeminiPart[]): Promise<Buffer> {
 
 export async function generateImageBuffer(
   prompt: string,
-  size: ImageSize = "1024x1024",
+  sizeOrOpts: ImageSize | ImageGenOptions = "1024x1024",
 ): Promise<Buffer> {
+  const opts: ImageGenOptions =
+    typeof sizeOrOpts === "string" ? { size: sizeOrOpts } : sizeOrOpts;
+  const size: ImageSize = opts.size ?? "1024x1024";
+  const provider = resolveProvider(opts.model);
+
   if (provider === "gemini") {
-    return geminiGenerateImage([{ text: prompt }]);
+    return geminiGenerateImage([{ text: withAspectHint(prompt, size) }]);
   }
   const response = await openai.images.generate({
     model: "gpt-image-1",
@@ -97,11 +132,12 @@ export async function generateImageWithLogoReference(
 ): Promise<Buffer> {
   const base64Data = logoBase64DataUrl.replace(/^data:image\/\w+;base64,/, "");
   const mimeType = logoBase64DataUrl.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+  const provider = resolveProvider();
 
   if (provider === "gemini") {
     return geminiGenerateImage([
       { inlineData: { mimeType, data: base64Data } },
-      { text: prompt },
+      { text: withAspectHint(prompt, size) },
     ]);
   }
 
@@ -127,9 +163,10 @@ export async function generateImageWithReferences(
   const opts: ImageGenOptions =
     typeof sizeOrOpts === "string" ? { size: sizeOrOpts } : sizeOrOpts;
   const size: ImageSize = opts.size ?? "1024x1024";
+  const provider = resolveProvider(opts.model);
 
   if (referenceDataUrls.length === 0) {
-    return generateImageBuffer(prompt, size);
+    return generateImageBuffer(prompt, { ...opts, size });
   }
 
   if (provider === "gemini") {
@@ -138,7 +175,7 @@ export async function generateImageWithReferences(
       const mimeType = url.startsWith("data:image/png") ? "image/png" : "image/jpeg";
       return { inlineData: { mimeType, data: base64Data } };
     });
-    parts.push({ text: prompt });
+    parts.push({ text: withAspectHint(prompt, size) });
     return geminiGenerateImage(parts);
   }
 
@@ -172,6 +209,7 @@ export async function editImages(
   prompt: string,
   outputPath?: string,
 ): Promise<Buffer> {
+  const provider = resolveProvider();
   if (provider === "gemini") {
     const parts: GeminiPart[] = imageFiles.map((file) => {
       const data = fs.readFileSync(file).toString("base64");

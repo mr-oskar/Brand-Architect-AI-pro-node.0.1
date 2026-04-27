@@ -4,6 +4,7 @@ import { Image as ImageIcon, Upload, X, Maximize2, RotateCw, Loader2 } from "luc
 import type { ImageNodeData } from "./types";
 import ImageLightbox from "@/components/ImageLightbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import NodeActions from "./NodeActions";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -13,8 +14,15 @@ function approxBytesFromDataUrl(dataUrl: string): number {
   return Math.floor((b64.length * 3) / 4);
 }
 
+type Raw = ImageNodeData & {
+  onDelete?: (id: string) => void;
+  onDuplicate?: (id: string) => void;
+};
+
 export default function ImageInputNode({ id, data, selected }: NodeProps) {
-  const d = data as unknown as ImageNodeData;
+  const d = data as unknown as Raw;
+  const onDelete = d.onDelete ?? (() => {});
+  const onDuplicate = d.onDuplicate ?? (() => {});
   const fileRef = useRef<HTMLInputElement>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -70,6 +78,8 @@ export default function ImageInputNode({ id, data, selected }: NodeProps) {
           aria-hidden
           className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-sky-400/60 to-transparent"
         />
+
+        <NodeActions nodeId={id} onDuplicate={onDuplicate} onDelete={onDelete} />
 
         <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_8px_2px_rgba(56,189,248,0.45)]" />
@@ -154,12 +164,12 @@ export default function ImageInputNode({ id, data, selected }: NodeProps) {
               <span className="text-[9px] text-muted-foreground/55">PNG · JPG · WebP · 8 MB</span>
             </button>
           )}
-          <div className="flex items-center justify-between px-1.5 text-[9.5px] text-muted-foreground/70 gap-2">
+          <div className="flex items-center justify-between px-1.5 text-[9.5px] text-foreground/75 gap-2">
             <span className="truncate flex-1">
-              {localError ? <span className="text-red-300/90">{localError}</span> : d.filename || "No file"}
+              {localError ? <span className="text-red-300">{localError}</span> : d.filename || "No file"}
             </span>
             {sizeBytes != null && !isUploading && (
-              <span className="font-mono text-muted-foreground/50 flex-shrink-0">
+              <span className="font-mono text-foreground/55 flex-shrink-0">
                 {sizeBytes < 1024 * 1024
                   ? `${(sizeBytes / 1024).toFixed(0)} KB`
                   : `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`}

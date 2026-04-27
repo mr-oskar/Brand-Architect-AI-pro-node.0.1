@@ -24,16 +24,22 @@ import { Link } from "wouter";
 import ImageInputNode from "./ImageInputNode";
 import PromptNode from "./PromptNode";
 import GenerateImageNode from "./GenerateImageNode";
+import SettingsNode from "./SettingsNode";
+import StyleExtractorNode from "./StyleExtractorNode";
 import Sidebar from "./Sidebar";
 import CanvasControls from "./CanvasControls";
 import { notifyError, notifySuccess } from "@/lib/apiError";
 import type {
+  GenerateModel,
   GenerateNodeBackground,
   GenerateNodeData,
   GenerateNodeQuality,
   GenerateNodeSize,
   ImageNodeData,
+  PromptNodeData,
   ReferenceMention,
+  SettingsNodeData,
+  StyleExtractorNodeData,
 } from "./types";
 import {
   loadStore,
@@ -283,21 +289,101 @@ function NodesEditorInner() {
     return map;
   }, [nodes, edges]);
 
+  // ===== Settings inherited per node (from a SettingsNode connected via "settings" handle) =====
+  const settingsByTargetId = useMemo(() => {
+    const map = new Map<string, SettingsNodeData>();
+    for (const e of edges) {
+      const src = nodes.find((x) => x.id === e.source);
+      if (!src || src.type !== "settings") continue;
+      // accept any target — we treat connections from a settings source as "apply"
+      map.set(e.target, src.data as SettingsNodeData);
+    }
+    return map;
+  }, [nodes, edges]);
+
+  // ===== Source image per StyleExtractor node (incoming on "image" handle) =====
+  const styleExtractorSourceByNodeId = useMemo(() => {
+    const map = new Map<string, { dataUrl: string | null; label: string | null; ready: boolean }>();
+    const extractors = nodes.filter((n) => n.type === "styleExtractor");
+    for (const ex of extractors) {
+      const incoming = edges.find((e) => e.target === ex.id && (e.targetHandle === "image" || !e.targetHandle));
+      if (!incoming) {
+        map.set(ex.id, { dataUrl: null, label: null, ready: false });
+        continue;
+      }
+      const src = nodes.find((n) => n.id === incoming.source);
+      if (!src) {
+        map.set(ex.id, { dataUrl: null, label: null, ready: false });
+        continue;
+      }
+      if (src.type === "imageInput") {
+        const data = src.data as ImageNodeData;
+        map.set(ex.id, {
+          dataUrl: data.imageDataUrl ?? null,
+          label: data.label || "Reference",
+          ready: !!data.imageDataUrl && !data.uploading,
+        });
+      } else if (src.type === "generateImage") {
+        const data = src.data as GenerateNodeData;
+        map.set(ex.id, {
+          dataUrl: data.resultUrl ?? null,
+          label: data.label || "Generated",
+          ready: data.status === "done" && !!data.resultUrl,
+        });
+      } else {
+        map.set(ex.id, { dataUrl: null, label: null, ready: false });
+      }
+    }
+    return map;
+  }, [nodes, edges]);
+
+  // ===== Inherited refs per Prompt node (from a downstream Generate node) =====
+  // When a prompt node's source is connected to a generate node's "prompt" handle,
+  // surface the generate node's references inside the prompt node.
+  const inheritedRefsByPromptId = useMemo(() => {
+    const map = new Map<string, ReferenceMention[]>();
+    const promptNodes = nodes.filter((n) => n.type === "prompt");
+    for (const p of promptNodes) {
+      const downstream = edges.find(
+        (e) => e.source === p.id && e.targetHandle === "prompt",
+      );
+      if (!downstream) continue;
+      const refs = referencesByGenId.get(downstream.target);
+      if (refs && refs.length > 0) map.set(p.id, refs);
+    }
+    return map;
+  }, [nodes, edges, referencesByGenId]);
+
   // ===== Run a generate node =====
   const runGenerate = useCallback(
     async (genNodeId: string) => {
       const genNode = nodes.find((n) => n.id === genNodeId);
       const inNodePrompt = ((genNode?.data as GenerateNodeData | undefined)?.prompt ?? "").trim();
-      const size: GenerateNodeSize =
+
+      // Local fallback values
+      const localSize: GenerateNodeSize =
         (genNode?.data as GenerateNodeData | undefined)?.size ?? "1024x1024";
-      const quality: GenerateNodeQuality =
+      const localQuality: GenerateNodeQuality =
         (genNode?.data as GenerateNodeData | undefined)?.quality ?? "auto";
-      const background: GenerateNodeBackground =
+      const localBackground: GenerateNodeBackground =
         (genNode?.data as GenerateNodeData | undefined)?.background ?? "auto";
+      const localModel: GenerateModel =
+        (genNode?.data as GenerateNodeData | undefined)?.model ?? "auto";
 
-      const refs = referencesByGenId.get(genNodeId) ?? [];
+      // Inherited Settings node (overrides local)
+      const inh = settingsByTargetId.get(genNodeId) ?? null;
+      const size: GenerateNodeSize = inh?.size ?? localSize;
+      const quality: GenerateNodeQuality = inh?.quality ?? localQuality;
+      const background: GenerateNodeBackground = inh?.background ?? localBackground;
+      const model: GenerateModel = inh?.model ?? localModel;
 
-      // Refuse to run if any reference isn't ready yet.
+      const refs = [...(referencesByGenId.get(genNodeId) ?? [])];
+
+      // If a Settings node provides an extra reference image, treat it as a synthetic
+      // ready-to-go reference so we can flow it through the same resolution path.
+      const settingsRefDataUrl = inh?.referenceImageDataUrl ?? null;
+
+      // Refuse to run if any "real" reference isn't ready yet.
       const notReady = refs.filter((r) => !r.ready);
       if (notReady.length > 0) {
         notifyError(
@@ -344,14 +430,17 @@ function NodesEditorInner() {
         return;
       }
 
-      // Optional fallback: legacy Prompt node connected to "prompt" handle.
+      if (settingsRefDataUrl) resolved.push(settingsRefDataUrl);
+
+      // Optional fallback: Prompt node OR StyleExtractor node connected to "prompt" handle.
       let prompt = inNodePrompt;
       if (!prompt) {
         const incoming = edges.filter((e) => e.target === genNodeId && e.targetHandle === "prompt");
         for (const e of incoming) {
           const n = nodes.find((x) => x.id === e.source);
-          const text = (n?.data as { text?: string } | undefined)?.text;
-          if (n?.type === "prompt" && typeof text === "string" && text.trim()) {
+          if (!n) continue;
+          const text = (n.data as { text?: string }).text;
+          if ((n.type === "prompt" || n.type === "styleExtractor") && typeof text === "string" && text.trim()) {
             prompt = text.trim();
             break;
           }
@@ -367,8 +456,15 @@ function NodesEditorInner() {
         return;
       }
 
+      // Inject Settings node's text reference + unified prompt prefix.
+      const sections: string[] = [];
+      if (inh?.unifiedPrompt?.trim()) sections.push(inh.unifiedPrompt.trim());
+      if (inh?.textReference?.trim()) sections.push(`Style / brand reference:\n${inh.textReference.trim()}`);
+      sections.push(prompt);
+      const composedPrompt = sections.join("\n\n");
+
       // Replace @refN tokens with explicit references the model understands.
-      const resolvedPrompt = prompt.replace(/@ref(\d+)/g, (match, n) => {
+      const resolvedPrompt = composedPrompt.replace(/@ref(\d+)/g, (match, n) => {
         const idx = Number(n);
         if (Number.isFinite(idx) && idx >= 1 && idx <= resolved.length) {
           return `Reference Image #${idx}`;
@@ -390,6 +486,7 @@ function NodesEditorInner() {
             size,
             quality,
             background,
+            model,
           }),
         });
         const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
@@ -407,34 +504,147 @@ function NodesEditorInner() {
         notifyError("Connection failed", err, msg);
       }
     },
-    [edges, nodes, referencesByGenId, updateNodeData],
+    [edges, nodes, referencesByGenId, settingsByTargetId, updateNodeData],
   );
+
+  // ===== Run a Style Extractor =====
+  const runExtractStyle = useCallback(
+    async (extractorId: string) => {
+      const ex = nodes.find((n) => n.id === extractorId);
+      if (!ex) return;
+      const src = styleExtractorSourceByNodeId.get(extractorId);
+      if (!src || !src.dataUrl || !src.ready) {
+        notifyError(
+          "No source image",
+          null,
+          "Connect a ready Image or Generate node to the extractor's left handle.",
+        );
+        return;
+      }
+
+      // Convert remote URL → data URL if needed
+      let dataUrl = src.dataUrl;
+      if (!dataUrl.startsWith("data:image/")) {
+        try {
+          const cache = dataUrlCache.current;
+          const cached = cache.get(dataUrl);
+          if (cached) dataUrl = await cached;
+          else {
+            const p = urlToDataUrl(dataUrl).catch((err) => {
+              cache.delete(dataUrl);
+              throw err;
+            });
+            cache.set(dataUrl, p);
+            dataUrl = await p;
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Could not load source image";
+          updateNodeData(extractorId, { status: "error", error: msg });
+          notifyError("Could not load image", err, msg);
+          return;
+        }
+      }
+
+      updateNodeData(extractorId, { status: "running", error: null });
+
+      try {
+        const baseUrl = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+        const res = await fetch(`${baseUrl}/api/nodes/extract-style`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ imageDataUrl: dataUrl }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { prompt?: string; error?: string };
+        if (!res.ok || !json.prompt) {
+          const msg = json.error || `Extraction failed (${res.status})`;
+          updateNodeData(extractorId, { status: "error", error: msg });
+          notifyError("Style extraction failed", null, msg);
+          return;
+        }
+        updateNodeData(extractorId, { status: "done", error: null, text: json.prompt });
+        notifySuccess("Style prompt extracted");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Network error";
+        updateNodeData(extractorId, { status: "error", error: msg });
+        notifyError("Connection failed", err, msg);
+      }
+    },
+    [nodes, styleExtractorSourceByNodeId, updateNodeData],
+  );
+
+  const handleStyleExtractorTextChange = useCallback(
+    (id: string, text: string) => updateNodeData(id, { text }),
+    [updateNodeData],
+  );
+
+  // Forward declarations so decoratedNodes can call delete/duplicate without
+  // creating circular useCallback deps. The actual refs are filled in below.
+  const deleteNodeRef = useRef<(id: string) => void>(() => {});
+  const duplicateNodeRef = useRef<(id: string) => void>(() => {});
+  const handleNodeDelete = useCallback((id: string) => deleteNodeRef.current(id), []);
+  const handleNodeDuplicate = useCallback((id: string) => duplicateNodeRef.current(id), []);
 
   // ===== Decorate nodes with callbacks + computed refs =====
   const decoratedNodes = useMemo<Node[]>(() => {
     return nodes.map((n) => {
+      const common = {
+        onDelete: handleNodeDelete,
+        onDuplicate: handleNodeDuplicate,
+      };
       if (n.type === "imageInput") {
         return {
           ...n,
           data: {
             ...n.data,
+            ...common,
             onChange: handleImageChange,
             onUploadingChange: handleImageUploadingChange,
           },
         };
       }
       if (n.type === "prompt") {
-        return { ...n, data: { ...n.data, onChange: handlePromptChange } };
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            ...common,
+            inheritedRefs: inheritedRefsByPromptId.get(n.id) ?? [],
+            onChange: handlePromptChange,
+          },
+        };
       }
       if (n.type === "generateImage") {
         return {
           ...n,
           data: {
             ...n.data,
+            ...common,
             references: referencesByGenId.get(n.id) ?? [],
+            inheritedSettings: settingsByTargetId.get(n.id) ?? null,
             onPromptChange: handleGeneratePromptChange,
             onRun: runGenerate,
             onSettingsChange: updateNodeData,
+          },
+        };
+      }
+      if (n.type === "settings") {
+        return {
+          ...n,
+          data: { ...n.data, ...common, onChange: updateNodeData },
+        };
+      }
+      if (n.type === "styleExtractor") {
+        const src = styleExtractorSourceByNodeId.get(n.id);
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            ...common,
+            sourceImageDataUrl: src?.dataUrl ?? null,
+            sourceLabel: src?.label ?? null,
+            onExtract: runExtractStyle,
+            onTextChange: handleStyleExtractorTextChange,
           },
         };
       }
@@ -443,11 +653,18 @@ function NodesEditorInner() {
   }, [
     nodes,
     referencesByGenId,
+    settingsByTargetId,
+    styleExtractorSourceByNodeId,
+    inheritedRefsByPromptId,
     handleImageChange,
     handleImageUploadingChange,
     handlePromptChange,
     handleGeneratePromptChange,
     runGenerate,
+    runExtractStyle,
+    handleStyleExtractorTextChange,
+    handleNodeDelete,
+    handleNodeDuplicate,
     updateNodeData,
   ]);
 
@@ -456,6 +673,8 @@ function NodesEditorInner() {
       imageInput: ImageInputNode,
       prompt: PromptNode,
       generateImage: GenerateImageNode,
+      settings: SettingsNode,
+      styleExtractor: StyleExtractorNode,
     }),
     [],
   );
@@ -513,8 +732,46 @@ function NodesEditorInner() {
         size: "1024x1024",
         quality: "auto",
         background: "auto",
+        model: "auto",
         label: "Generate",
       },
+    });
+  }, [insertNode]);
+
+  const addSettingsNode = useCallback(() => {
+    const id = nextId("settings");
+    insertNode({
+      id,
+      type: "settings",
+      position: { x: 360 + Math.random() * 60, y: 460 + Math.random() * 80 },
+      data: {
+        label: "Settings",
+        model: "auto",
+        size: "1024x1024",
+        quality: "auto",
+        background: "auto",
+        referenceImageDataUrl: null,
+        referenceImageFilename: null,
+        textReference: "",
+        unifiedPrompt: "",
+      } as SettingsNodeData,
+    });
+  }, [insertNode]);
+
+  const addStyleExtractorNode = useCallback(() => {
+    const id = nextId("style");
+    insertNode({
+      id,
+      type: "styleExtractor",
+      position: { x: 420 + Math.random() * 60, y: 320 + Math.random() * 80 },
+      data: {
+        label: "Style Extractor",
+        text: "",
+        status: "idle",
+        error: null,
+        sourceImageDataUrl: null,
+        sourceLabel: null,
+      } as Omit<StyleExtractorNodeData, "onExtract" | "onTextChange">,
     });
   }, [insertNode]);
 
@@ -539,17 +796,30 @@ function NodesEditorInner() {
       const src = nodes.find((n) => n.id === nodeId);
       if (!src) return;
       const id = nextId(src.type ?? "node");
+      // Strip out callback fields so we don't carry decorator references.
+      const cleanData: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(src.data ?? {})) {
+        if (typeof v === "function") continue;
+        if (k === "references" || k === "inheritedSettings" || k === "inheritedRefs" || k === "sourceImageDataUrl" || k === "sourceLabel") continue;
+        cleanData[k] = v;
+      }
       const copy: Node = {
         ...src,
         id,
         position: { x: src.position.x + 32, y: src.position.y + 32 },
         selected: false,
-        data: { ...src.data },
+        data: cleanData,
       };
       insertNode(copy);
     },
     [insertNode, nodes],
   );
+
+  // Wire the forward-declared refs so the in-node action buttons stay current.
+  useEffect(() => {
+    deleteNodeRef.current = deleteNode;
+    duplicateNodeRef.current = duplicateNode;
+  }, [deleteNode, duplicateNode]);
 
   const deleteEdge = useCallback(
     (edgeId: string) => {
@@ -680,6 +950,14 @@ function NodesEditorInner() {
             <span className="w-1.5 h-1.5 rounded-full bg-[#a78bfa] shadow-[0_0_6px_1px_rgba(167,139,250,0.45)]" />
             Generate
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 shadow-[0_0_6px_1px_rgba(110,231,183,0.45)]" />
+            Settings
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-300 shadow-[0_0_6px_1px_rgba(240,171,252,0.45)]" />
+            Style Extractor
+          </span>
         </div>
       </div>
 
@@ -698,6 +976,8 @@ function NodesEditorInner() {
           onAddImage={addImageNode}
           onAddPrompt={addPromptNode}
           onAddGenerate={addGenerateNode}
+          onAddSettings={addSettingsNode}
+          onAddStyleExtractor={addStyleExtractorNode}
           onResetCanvas={resetCanvas}
           selectedNode={selectedNode}
           onUpdateNodeData={updateNodeData}
@@ -744,6 +1024,8 @@ function NodesEditorInner() {
                 if (n.type === "imageInput") return "#38bdf8";
                 if (n.type === "prompt") return "#fcd34d";
                 if (n.type === "generateImage") return "#a78bfa";
+                if (n.type === "settings") return "#6ee7b7";
+                if (n.type === "styleExtractor") return "#f0abfc";
                 return "#6b7280";
               }}
               nodeStrokeWidth={0}
