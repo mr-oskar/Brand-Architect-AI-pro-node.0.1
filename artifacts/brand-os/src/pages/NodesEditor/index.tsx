@@ -28,6 +28,7 @@ import {
   SlidersHorizontal,
   Palette,
   Briefcase,
+  Layers,
 } from "lucide-react";
 import { Link } from "wouter";
 import ImageInputNode from "./ImageInputNode";
@@ -36,6 +37,7 @@ import GenerateImageNode from "./GenerateImageNode";
 import SettingsNode from "./SettingsNode";
 import BrandKitNode from "./BrandKitNode";
 import StyleExtractorNode from "./StyleExtractorNode";
+import ReferenceStudioNode from "./ReferenceStudioNode";
 import Sidebar from "./Sidebar";
 import CanvasControls from "./CanvasControls";
 import { notifyError, notifySuccess } from "@/lib/apiError";
@@ -52,6 +54,10 @@ import type {
   ReferenceMention,
   SettingsNodeData,
   StyleExtractorNodeData,
+  ReferenceStudioNodeData,
+  ReferenceStudioItem,
+  ReferenceStudioMode,
+  ReferenceStudioResolution,
 } from "./types";
 import {
   loadStore,
@@ -189,6 +195,11 @@ function NodesEditorInner() {
     return false;
   }, []);
 
+  // ===== Reference Studio runtime constant =====
+  // Per-image base credit cost (kept in sync with backend's design.generate-image
+  // multiplier in artifacts/api-server/src/lib/credits.ts).
+  const RS_BASE_CU = 10;
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!isValidConnection(connection)) return;
@@ -295,11 +306,14 @@ function NodesEditorInner() {
     [updateNodeData],
   );
 
-  // ===== References per generate node =====
+  // ===== References per generate / reference-studio node =====
   // Image-input nodes AND generate-image nodes (whose result is an image) can be references.
+  // Both `generateImage` and `referenceStudio` nodes accept incoming refs on the same handle id.
   const referencesByGenId = useMemo(() => {
     const map = new Map<string, ReferenceMention[]>();
-    const genNodes = nodes.filter((n) => n.type === "generateImage");
+    const genNodes = nodes.filter(
+      (n) => n.type === "generateImage" || n.type === "referenceStudio",
+    );
     for (const gen of genNodes) {
       const incoming = edges.filter(
         (e) => e.target === gen.id && (e.targetHandle === "references" || !e.targetHandle),
@@ -739,12 +753,490 @@ function NodesEditorInner() {
     [updateNodeData],
   );
 
+  // ===== Reference Studio: prompt-change + settings-change passthroughs =====
+  const handleRsPromptChange = useCallback(
+    (id: string, text: string) => updateNodeData(id, { prompt: text }),
+    [updateNodeData],
+  );
+  const handleRsSettingsChange = useCallback(
+    (id: string, patch: Partial<ReferenceStudioNodeData>) =>
+      updateNodeData(id, patch as Record<string, unknown>),
+    [updateNodeData],
+  );
+
+  // Resolve all references for a target node (image inputs + generate-image
+  // results) into base64 data URLs, also appending an optional Settings
+  // reference image and the Brand logo (if present). Same shape as runGenerate
+  // so both code paths stay consistent.
+  const resolveContext = useCallback(
+    async (
+      targetId: string,
+    ): Promise<{ resolvedRefs: string[]; brand: BrandFull | null; inh: SettingsNodeData | null } | null> => {
+      const refs = [...(referencesByGenId.get(targetId) ?? [])];
+      const inh = settingsByTargetId.get(targetId) ?? null;
+      const brand = brandByTargetId.get(targetId) ?? null;
+
+      const notReady = refs.filter((r) => !r.ready);
+      if (notReady.length > 0) {
+        notifyError(
+          "References not ready",
+          null,
+          "Wait until all reference images finish loading before running.",
+        );
+        return null;
+      }
+
+      let resolved: string[] = [];
+      try {
+        resolved = await Promise.all(
+          refs.map(async (r) => {
+            const sourceNode = nodes.find((x) => x.id === r.id);
+            if (!sourceNode) throw new Error(`Reference ${r.mention} is missing.`);
+            if (sourceNode.type === "imageInput") {
+              const url = (sourceNode.data as ImageNodeData).imageDataUrl;
+              if (!url || !url.startsWith("data:image/")) {
+                throw new Error(`Reference ${r.mention} has no image yet.`);
+              }
+              return url;
+            }
+            const url = (sourceNode.data as GenerateNodeData).resultUrl;
+            if (!url) throw new Error(`Reference ${r.mention} has no generated output yet.`);
+            if (url.startsWith("data:image/")) return url;
+            const cache = dataUrlCache.current;
+            const cached = cache.get(url);
+            if (cached) return cached;
+            const p = urlToDataUrl(url).catch((err) => {
+              cache.delete(url);
+              throw err;
+            });
+            cache.set(url, p);
+            return p;
+          }),
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to load references";
+        notifyError("Could not prepare references", err, msg);
+        return null;
+      }
+
+      if (inh?.referenceImageDataUrl) resolved.push(inh.referenceImageDataUrl);
+
+      if (brand?.logoUrl) {
+        try {
+          const cache = dataUrlCache.current;
+          let logoData = cache.get(brand.logoUrl);
+          if (!logoData) {
+            logoData = brand.logoUrl.startsWith("data:image/")
+              ? Promise.resolve(brand.logoUrl)
+              : urlToDataUrl(brand.logoUrl).catch((err) => {
+                  cache.delete(brand.logoUrl as string);
+                  throw err;
+                });
+            cache.set(brand.logoUrl, logoData);
+          }
+          resolved.push(await logoData);
+        } catch {
+          // continue without logo
+        }
+      }
+
+      return { resolvedRefs: resolved, brand, inh };
+    },
+    [nodes, referencesByGenId, settingsByTargetId, brandByTargetId],
+  );
+
+  // Build the same brand-aware section block runGenerate uses, around an
+  // arbitrary user prompt (so we can vary it per slot in the batch).
+  const composeBatchedPrompt = useCallback(
+    (brand: BrandFull | null, inh: SettingsNodeData | null, userPrompt: string, modeHint: string) => {
+      const sections: string[] = [];
+      if (brand) {
+        const lines: string[] = [];
+        lines.push(`Brand: ${brand.companyName}${brand.industry ? ` (${brand.industry})` : ""}`);
+        const kit = brand.brandKit;
+        if (kit?.toneOfVoice) lines.push(`Tone of voice: ${kit.toneOfVoice}`);
+        if (kit?.personality) lines.push(`Personality: ${kit.personality}`);
+        if (kit?.visualStyle) lines.push(`Visual style: ${kit.visualStyle}`);
+        if (kit?.visualStyleRules) lines.push(`Visual rules: ${kit.visualStyleRules}`);
+        const palette = kit?.colorPalette;
+        if (palette) {
+          const swatches = [
+            palette.primary && `primary ${palette.primary}`,
+            palette.secondary && `secondary ${palette.secondary}`,
+            palette.accent && `accent ${palette.accent}`,
+            palette.background && `background ${palette.background}`,
+            palette.text && `text ${palette.text}`,
+            palette.neutral && `neutral ${palette.neutral}`,
+          ].filter(Boolean);
+          if (swatches.length > 0) lines.push(`Color palette: ${swatches.join(", ")}`);
+        }
+        if (kit?.brandKeywords && kit.brandKeywords.length > 0) {
+          lines.push(`Brand keywords: ${kit.brandKeywords.slice(0, 8).join(", ")}`);
+        }
+        if (brand.logoUrl) {
+          lines.push(
+            `The brand logo is attached as the LAST reference image — match its colors, geometry and proportions exactly when the logo appears in the composition.`,
+          );
+        }
+        sections.push(`Brand identity (anchor every visual choice to this):\n${lines.join("\n")}`);
+      }
+      if (inh?.unifiedPrompt?.trim()) sections.push(inh.unifiedPrompt.trim());
+      if (inh?.textReference?.trim()) sections.push(`Style / brand reference:\n${inh.textReference.trim()}`);
+      if (modeHint) sections.push(`Studio mode directive: ${modeHint}`);
+      sections.push(`User request:\n${userPrompt}`);
+      return sections.join("\n\n");
+    },
+    [],
+  );
+
+  // Mode-specific instructions injected into every slot's prompt so the model
+  // honors the chosen Reference Studio mode regardless of the user's wording.
+  const RS_MODE_HINTS: Record<ReferenceStudioMode, string> = useMemo(
+    () => ({
+      variations:
+        "Produce a creative variation of the same subject — vary framing, lighting, mood, and palette accents while preserving the subject's identity.",
+      styleLock:
+        "Match the visual style of the reference images EXACTLY — same medium, palette, lighting quality, and overall aesthetic. The subject may vary slightly but the style is locked.",
+      subjectLock:
+        "Preserve the subject identity from the reference images EXACTLY (same person/character/object). Vary only the scene, background, outfit, or action.",
+      matrix:
+        "This image is one cell in a 2-axis exploration matrix (lighting × angle). Render it as a clean, decisive single point in that grid.",
+      aspectPack:
+        "Compose for the requested aspect ratio while preserving the same subject and overall scene as the rest of the pack.",
+    }),
+    [],
+  );
+
+  // Aspect Pack rotates the slot size through a fixed sequence so a single
+  // batch produces square + portrait + landscape framings of the same scene.
+  const ASPECT_PACK_SIZES: GenerateNodeSize[] = useMemo(
+    () => ["1024x1024", "1024x1536", "1536x1024", "1024x1024"],
+    [],
+  );
+
+  // Track in-flight batches so we don't double-run a node.
+  const rsBatchesInFlight = useRef<Set<string>>(new Set());
+
+  /**
+   * Run a single slot inside a Reference Studio batch. Updates only that slot's
+   * status/url/error in the items[] array so concurrent slots don't clobber
+   * each other. Used by both the initial batch run and per-slot retries.
+   */
+  const runReferenceItem = useCallback(
+    async (
+      rsId: string,
+      index: number,
+      ctx: { resolvedRefs: string[]; brand: BrandFull | null; inh: SettingsNodeData | null },
+    ): Promise<boolean> => {
+      // Mark the slot as running, then read the freshest snapshot of the node.
+      let upscale = 1;
+      let success = false;
+      setNodes((nds) => {
+        const next = nds.map((n) => {
+          if (n.id !== rsId) return n;
+          const d = n.data as ReferenceStudioNodeData;
+          const items = (d.items ?? []).map((it) =>
+            it.index === index ? { ...it, status: "running" as const, error: null } : it,
+          );
+          return { ...n, data: { ...d, items, status: "running" as const, error: null } };
+        });
+        return next;
+      });
+
+      const node = nodes.find((n) => n.id === rsId);
+      if (!node) return false;
+      const d = node.data as ReferenceStudioNodeData;
+      const item = (d.items ?? []).find((it) => it.index === index);
+      if (!item) return false;
+
+      const localSize: GenerateNodeSize = ctx.inh?.size ?? d.size ?? "1024x1024";
+      const localQuality: GenerateNodeQuality = ctx.inh?.quality ?? d.quality ?? "auto";
+      const localBg: GenerateNodeBackground = ctx.inh?.background ?? d.background ?? "auto";
+      const localModel: GenerateModel = ctx.inh?.model ?? d.model ?? "auto";
+      const sizeForSlot: GenerateNodeSize = item.size ?? localSize;
+      upscale = d.resolution === "4k" ? 4 : d.resolution === "2k" ? 2 : 1;
+
+      // Compose this slot's prompt: brand + studio hint + slot text.
+      const modeHint = RS_MODE_HINTS[d.mode] ?? "";
+      const composed = composeBatchedPrompt(ctx.brand, ctx.inh, item.prompt || d.prompt || "", modeHint);
+      const resolvedPrompt = composed.replace(/@ref(\d+)/g, (m, n) => {
+        const idx = Number(n);
+        if (Number.isFinite(idx) && idx >= 1 && idx <= ctx.resolvedRefs.length) {
+          return `Reference Image #${idx}`;
+        }
+        return m;
+      });
+
+      try {
+        const baseUrl = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+        const res = await fetch(`${baseUrl}/api/nodes/generate-image`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            prompt: resolvedPrompt,
+            referenceImages: ctx.resolvedRefs,
+            size: sizeForSlot,
+            quality: localQuality,
+            background: localBg,
+            model: localModel,
+            upscale,
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+        if (!res.ok || !json.url) {
+          const msg = json.error || `Slot #${index} failed (${res.status})`;
+          setNodes((nds) =>
+            nds.map((n) => {
+              if (n.id !== rsId) return n;
+              const dd = n.data as ReferenceStudioNodeData;
+              const items = (dd.items ?? []).map((it) =>
+                it.index === index ? { ...it, status: "error" as const, error: msg, url: null } : it,
+              );
+              return { ...n, data: { ...dd, items } };
+            }),
+          );
+          return false;
+        }
+        setNodes((nds) =>
+          nds.map((n) => {
+            if (n.id !== rsId) return n;
+            const dd = n.data as ReferenceStudioNodeData;
+            const items = (dd.items ?? []).map((it) =>
+              it.index === index ? { ...it, status: "done" as const, url: json.url!, error: null } : it,
+            );
+            return { ...n, data: { ...dd, items } };
+          }),
+        );
+        success = true;
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Network error";
+        setNodes((nds) =>
+          nds.map((n) => {
+            if (n.id !== rsId) return n;
+            const dd = n.data as ReferenceStudioNodeData;
+            const items = (dd.items ?? []).map((it) =>
+              it.index === index ? { ...it, status: "error" as const, error: msg, url: null } : it,
+            );
+            return { ...n, data: { ...dd, items } };
+          }),
+        );
+        return false;
+      } finally {
+        // Persist after each slot so partial progress survives reloads.
+        setNodes((cur) => {
+          persist(cur, edges);
+          return cur;
+        });
+        void success;
+        void upscale;
+      }
+    },
+    [nodes, RS_MODE_HINTS, composeBatchedPrompt, edges, persist],
+  );
+
+  /**
+   * Run a Reference Studio batch. Resolves the references once, builds an items[]
+   * array of `count` pending slots, then dispatches them with a small
+   * concurrency cap so the UI fills in progressively. Failed slots stay marked
+   * as `error` and can be retried individually or via "Retry failed".
+   */
+  const runReferenceBatch = useCallback(
+    async (rsId: string) => {
+      if (rsBatchesInFlight.current.has(rsId)) return;
+      const node = nodes.find((n) => n.id === rsId);
+      if (!node || node.type !== "referenceStudio") return;
+      const d = node.data as ReferenceStudioNodeData;
+
+      // Build the working prompt — fall back to incoming Prompt nodes if empty.
+      let basePrompt = (d.prompt ?? "").trim();
+      if (!basePrompt) {
+        const promptIncoming = edges.filter((e) => e.target === rsId && e.targetHandle === "prompt");
+        for (const e of promptIncoming) {
+          const n = nodes.find((x) => x.id === e.source);
+          if (!n || n.type !== "prompt") continue;
+          const text = (n.data as { text?: string }).text;
+          if (typeof text === "string" && text.trim()) {
+            basePrompt = text.trim();
+            break;
+          }
+        }
+      }
+      if (!basePrompt) {
+        notifyError(
+          "No instructions",
+          null,
+          "Write a prompt inside the Reference Studio, or connect a Prompt node to it.",
+        );
+        return;
+      }
+
+      const ctx = await resolveContext(rsId);
+      if (!ctx) return;
+
+      // Seed items[]: one pending slot per requested image, with seed/aspect
+      // resolved up-front so re-runs of individual slots stay deterministic.
+      const count = Math.max(1, Math.min(16, Math.floor(d.count ?? 4)));
+      const sizeOverride: GenerateNodeSize = ctx.inh?.size ?? d.size ?? "1024x1024";
+      const items: ReferenceStudioItem[] = [];
+      const expanded = d.expandedPrompts ?? null;
+      for (let i = 1; i <= count; i++) {
+        const slotPrompt =
+          expanded && expanded[i - 1] && expanded[i - 1].trim() ? expanded[i - 1].trim() : basePrompt;
+        const slotSeed = d.seedLocked
+          ? (d.seed ?? 42)
+          : Math.floor(Math.random() * 1_000_000_000);
+        const slotSize: GenerateNodeSize =
+          d.mode === "aspectPack"
+            ? ASPECT_PACK_SIZES[(i - 1) % ASPECT_PACK_SIZES.length]
+            : sizeOverride;
+        items.push({
+          index: i,
+          status: "pending",
+          url: null,
+          error: null,
+          prompt: slotPrompt,
+          seed: slotSeed,
+          size: slotSize,
+          selected: false,
+          starred: false,
+        });
+      }
+      updateNodeData(rsId, {
+        status: "running",
+        error: null,
+        items,
+      });
+
+      rsBatchesInFlight.current.add(rsId);
+
+      // Dispatch slots with a concurrency cap so we don't hammer the API.
+      const CONCURRENCY = 2;
+      const queue = items.map((it) => it.index);
+      let cursor = 0;
+      const workers: Promise<void>[] = [];
+      const failures: number[] = [];
+      const runWorker = async () => {
+        while (cursor < queue.length) {
+          const idx = queue[cursor++];
+          const ok = await runReferenceItem(rsId, idx, ctx);
+          if (!ok) failures.push(idx);
+        }
+      };
+      for (let w = 0; w < Math.min(CONCURRENCY, queue.length); w++) workers.push(runWorker());
+      try {
+        await Promise.all(workers);
+      } finally {
+        rsBatchesInFlight.current.delete(rsId);
+        updateNodeData(rsId, {
+          status: failures.length === 0 ? "done" : failures.length === count ? "error" : "done",
+          error: failures.length > 0 ? `${failures.length} slot(s) failed — retry them individually.` : null,
+        });
+        if (failures.length === 0) {
+          notifySuccess(`Generated ${count} reference${count === 1 ? "" : "s"}`);
+        } else if (failures.length < count) {
+          notifyError("Some slots failed", null, `${failures.length} of ${count} slots failed.`);
+        }
+      }
+    },
+    [nodes, edges, resolveContext, updateNodeData, ASPECT_PACK_SIZES, runReferenceItem],
+  );
+
+  /** Re-run only the slots that previously errored, reusing the resolved context. */
+  const retryReferenceFailed = useCallback(
+    async (rsId: string) => {
+      const node = nodes.find((n) => n.id === rsId);
+      if (!node) return;
+      const d = node.data as ReferenceStudioNodeData;
+      const failedIdx = (d.items ?? []).filter((it) => it.status === "error").map((it) => it.index);
+      if (failedIdx.length === 0) return;
+
+      const ctx = await resolveContext(rsId);
+      if (!ctx) return;
+
+      updateNodeData(rsId, { status: "running", error: null });
+      const CONCURRENCY = 2;
+      const queue = [...failedIdx];
+      const workers: Promise<void>[] = [];
+      let cursor = 0;
+      const failures: number[] = [];
+      const worker = async () => {
+        while (cursor < queue.length) {
+          const idx = queue[cursor++];
+          const ok = await runReferenceItem(rsId, idx, ctx);
+          if (!ok) failures.push(idx);
+        }
+      };
+      for (let w = 0; w < Math.min(CONCURRENCY, queue.length); w++) workers.push(worker());
+      await Promise.all(workers);
+      updateNodeData(rsId, {
+        status: failures.length === 0 ? "done" : "done",
+        error: failures.length > 0 ? `${failures.length} slot(s) still failing.` : null,
+      });
+    },
+    [nodes, resolveContext, updateNodeData, runReferenceItem],
+  );
+
+  /** Re-run a single specific slot (used by per-tile retry/refresh buttons). */
+  const retryReferenceItem = useCallback(
+    async (rsId: string, index: number) => {
+      const ctx = await resolveContext(rsId);
+      if (!ctx) return;
+      await runReferenceItem(rsId, index, ctx);
+    },
+    [resolveContext, runReferenceItem],
+  );
+
+  /** Smart Prompt Expansion — fill `expandedPrompts` with N variations from gpt-4o-mini. */
+  const expandReferencePrompts = useCallback(
+    async (rsId: string) => {
+      const node = nodes.find((n) => n.id === rsId);
+      if (!node) return;
+      const d = node.data as ReferenceStudioNodeData;
+      const prompt = (d.prompt ?? "").trim();
+      if (!prompt) {
+        notifyError("Empty prompt", null, "Write a base prompt before expanding.");
+        return;
+      }
+      try {
+        const baseUrl = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+        const res = await fetch(`${baseUrl}/api/nodes/expand-prompts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ prompt, count: d.count ?? 4, mode: d.mode ?? "variations" }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { prompts?: string[]; error?: string };
+        if (!res.ok || !Array.isArray(json.prompts) || json.prompts.length === 0) {
+          notifyError("Expansion failed", null, json.error || "Could not expand prompt");
+          return;
+        }
+        updateNodeData(rsId, { expandedPrompts: json.prompts });
+        notifySuccess(`Expanded into ${json.prompts.length} unique prompts`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Network error";
+        notifyError("Expansion failed", err, msg);
+      }
+    },
+    [nodes, updateNodeData],
+  );
+
+  const clearReferenceResults = useCallback(
+    (rsId: string) => {
+      updateNodeData(rsId, { items: [], status: "idle", error: null });
+    },
+    [updateNodeData],
+  );
+
   // Forward declarations so decoratedNodes can call delete/duplicate without
   // creating circular useCallback deps. The actual refs are filled in below.
   const deleteNodeRef = useRef<(id: string) => void>(() => {});
   const duplicateNodeRef = useRef<(id: string) => void>(() => {});
   const handleNodeDelete = useCallback((id: string) => deleteNodeRef.current(id), []);
   const handleNodeDuplicate = useCallback((id: string) => duplicateNodeRef.current(id), []);
+  // Promote-Reference-Selected forwards to a function defined after addGenerateNode.
+  const promoteReferenceSelectedRef = useRef<(id: string) => void>(() => {});
 
   // ===== Decorate nodes with callbacks + computed refs =====
   const decoratedNodes = useMemo<Node[]>(() => {
@@ -816,6 +1308,26 @@ function NodesEditorInner() {
           },
         };
       }
+      if (n.type === "referenceStudio") {
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            ...common,
+            references: referencesByGenId.get(n.id) ?? [],
+            inheritedSettings: settingsByTargetId.get(n.id) ?? null,
+            inheritedBrand: brandByTargetId.get(n.id) ?? null,
+            onPromptChange: handleRsPromptChange,
+            onSettingsChange: handleRsSettingsChange,
+            onRun: runReferenceBatch,
+            onRetryFailed: retryReferenceFailed,
+            onRetryItem: retryReferenceItem,
+            onExpandPrompts: expandReferencePrompts,
+            onPromoteSelected: promoteReferenceSelectedRef.current,
+            onClearResults: clearReferenceResults,
+          },
+        };
+      }
       return n;
     });
   }, [
@@ -832,6 +1344,13 @@ function NodesEditorInner() {
     runGenerate,
     runExtractStyle,
     handleStyleExtractorTextChange,
+    handleRsPromptChange,
+    handleRsSettingsChange,
+    runReferenceBatch,
+    retryReferenceFailed,
+    retryReferenceItem,
+    expandReferencePrompts,
+    clearReferenceResults,
     handleNodeDelete,
     handleNodeDuplicate,
     updateNodeData,
@@ -845,6 +1364,7 @@ function NodesEditorInner() {
       settings: SettingsNode,
       styleExtractor: StyleExtractorNode,
       brandKit: BrandKitNode,
+      referenceStudio: ReferenceStudioNode,
     }),
     [],
   );
@@ -916,6 +1436,110 @@ function NodesEditorInner() {
     },
     [insertNode],
   );
+
+  const addReferenceStudioNode = useCallback(
+    (at?: { x: number; y: number }) => {
+      const id = nextId("rs");
+      insertNode({
+        id,
+        type: "referenceStudio",
+        position: at ?? { x: 720 + Math.random() * 60, y: 360 + Math.random() * 80 },
+        data: {
+          label: "Reference Studio",
+          prompt: "",
+          status: "idle",
+          error: null,
+          count: 4,
+          mode: "variations",
+          resolution: "1k",
+          size: "1024x1024",
+          quality: "high",
+          background: "auto",
+          model: "auto",
+          fidelity: 65,
+          seed: 42,
+          seedLocked: false,
+          expandedPrompts: null,
+          items: [],
+        } as Omit<
+          ReferenceStudioNodeData,
+          | "onPromptChange"
+          | "onRun"
+          | "onRetryFailed"
+          | "onRetryItem"
+          | "onSettingsChange"
+          | "onExpandPrompts"
+          | "onPromoteSelected"
+          | "onClearResults"
+          | "references"
+          | "inheritedSettings"
+          | "inheritedBrand"
+        >,
+      });
+    },
+    [insertNode],
+  );
+
+  /**
+   * Promote selected Reference Studio results to standalone Generate nodes —
+   * one new GenerateImage node per starred/selected slot, pre-populated with
+   * the slot's prompt and a baked-in `resultUrl`. Lets the user iterate further
+   * on the picks they like without losing the rest of the batch.
+   */
+  const promoteReferenceSelected = useCallback(
+    (rsId: string) => {
+      const rsNode = nodes.find((n) => n.id === rsId);
+      if (!rsNode || rsNode.type !== "referenceStudio") return;
+      const d = rsNode.data as ReferenceStudioNodeData;
+      const picks = (d.items ?? []).filter((it) => it.selected && it.status === "done" && it.url);
+      if (picks.length === 0) {
+        notifyError("No selections", null, "Click images in the grid to select them first.");
+        return;
+      }
+
+      // Build all new nodes in one pass so persistence is atomic.
+      const newNodes: Node[] = picks.map((p, i) => {
+        idCounter.current += 1;
+        const newId = `gen-${idCounter.current}`;
+        return {
+          id: newId,
+          type: "generateImage",
+          position: {
+            x: rsNode.position.x + 580 + (i % 3) * 360,
+            y: rsNode.position.y + Math.floor(i / 3) * 320,
+          },
+          data: {
+            label: `From ${d.label} #${p.index}`,
+            prompt: p.prompt || d.prompt || "",
+            status: "done",
+            resultUrl: p.url,
+            error: null,
+            size: p.size,
+            quality: d.quality,
+            background: d.background,
+            model: d.model,
+          } as GenerateNodeData,
+        };
+      });
+
+      setNodes((nds) => {
+        const next = [...nds, ...newNodes];
+        persist(next, edges);
+        return next;
+      });
+      // Clear the picks' selected flag so the user can keep curating.
+      updateNodeData(rsId, {
+        items: (d.items ?? []).map((it) => (it.selected ? { ...it, selected: false } : it)),
+      });
+      notifySuccess(`Promoted ${picks.length} pick${picks.length === 1 ? "" : "s"} to Generate`);
+    },
+    [nodes, edges, persist, updateNodeData],
+  );
+
+  // Wire the forward-declared promote ref now that the function exists.
+  useEffect(() => {
+    promoteReferenceSelectedRef.current = promoteReferenceSelected;
+  }, [promoteReferenceSelected]);
 
   const addSettingsNode = useCallback(
     (at?: { x: number; y: number }) => {
@@ -1198,6 +1822,13 @@ function NodesEditorInner() {
         add: addGenerateNode,
       },
       {
+        key: "referenceStudio",
+        label: "Reference Studio",
+        icon: Layers,
+        accentClass: "text-cyan-300",
+        add: addReferenceStudioNode,
+      },
+      {
         key: "settings",
         label: "Settings",
         icon: SlidersHorizontal,
@@ -1223,6 +1854,7 @@ function NodesEditorInner() {
       addImageNode,
       addPromptNode,
       addGenerateNode,
+      addReferenceStudioNode,
       addSettingsNode,
       addBrandKitNode,
       addStyleExtractorNode,
@@ -1265,6 +1897,10 @@ function NodesEditorInner() {
             Generate
           </span>
           <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_1px_rgba(34,211,238,0.55)]" />
+            Reference Studio
+          </span>
+          <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 shadow-[0_0_6px_1px_rgba(110,231,183,0.45)]" />
             Settings
           </span>
@@ -1293,6 +1929,7 @@ function NodesEditorInner() {
           onAddSettings={addSettingsNode}
           onAddBrandKit={addBrandKitNode}
           onAddStyleExtractor={addStyleExtractorNode}
+          onAddReferenceStudio={addReferenceStudioNode}
           onResetCanvas={resetCanvas}
           selectedNode={selectedNode}
           onUpdateNodeData={updateNodeData}
@@ -1347,6 +1984,7 @@ function NodesEditorInner() {
                 if (n.type === "imageInput") return "#38bdf8";
                 if (n.type === "prompt") return "#fcd34d";
                 if (n.type === "generateImage") return "#a78bfa";
+                if (n.type === "referenceStudio") return "#22d3ee";
                 if (n.type === "settings") return "#6ee7b7";
                 if (n.type === "styleExtractor") return "#f0abfc";
                 return "#6b7280";

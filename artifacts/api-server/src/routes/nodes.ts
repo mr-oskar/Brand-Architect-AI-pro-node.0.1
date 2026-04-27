@@ -23,6 +23,8 @@ const VALID_SIZES: ReadonlyArray<ImageSize> = ["1024x1024", "1024x1536", "1536x1
 const VALID_QUALITIES: ReadonlyArray<ImageQuality> = ["low", "medium", "high", "auto"];
 const VALID_BACKGROUNDS: ReadonlyArray<ImageBackground> = ["transparent", "opaque", "auto"];
 const VALID_MODELS: ReadonlyArray<ImageModel> = ["auto", "gpt-image-1", "gemini-2.5-flash-image"];
+const VALID_UPSCALES = [1, 2, 3, 4] as const;
+type Upscale = (typeof VALID_UPSCALES)[number];
 
 /** Parse "1024x1536" into [width, height]. Returns null for "auto" or invalid. */
 function parseSize(size: ImageSize): [number, number] | null {
@@ -37,15 +39,31 @@ function parseSize(size: ImageSize): [number, number] | null {
  * a buffer that doesn't match (common with Gemini), we cover-crop & resize to the
  * exact pixel dimensions so the user always gets the size they asked for.
  */
-async function enforceSize(buf: Buffer, size: ImageSize): Promise<Buffer> {
+async function enforceSize(buf: Buffer, size: ImageSize, upscale: Upscale = 1): Promise<Buffer> {
   const target = parseSize(size);
-  if (!target) return buf;
+  const factor = Math.max(1, Math.min(4, upscale));
+  if (!target) {
+    if (factor === 1) return buf;
+    try {
+      const meta = await sharp(buf).metadata();
+      if (!meta.width || !meta.height) return buf;
+      return await sharp(buf)
+        .resize(meta.width * factor, meta.height * factor, { kernel: "lanczos3" })
+        .png()
+        .toBuffer();
+    } catch (err) {
+      logger.warn({ err }, "[nodes] upscale (auto) failed; returning original");
+      return buf;
+    }
+  }
   const [tw, th] = target;
+  const finalW = tw * factor;
+  const finalH = th * factor;
   try {
     const meta = await sharp(buf).metadata();
-    if (meta.width === tw && meta.height === th) return buf;
+    if (meta.width === finalW && meta.height === finalH) return buf;
     return await sharp(buf)
-      .resize(tw, th, { fit: "cover", position: "attention" })
+      .resize(finalW, finalH, { fit: "cover", position: "attention", kernel: "lanczos3" })
       .png()
       .toBuffer();
   } catch (err) {
@@ -102,8 +120,15 @@ router.post(
         ? (model as ImageModel)
         : undefined;
 
+    const upscaleRaw = (req.body ?? {}).upscale;
+    const requestedUpscale: Upscale =
+      typeof upscaleRaw === "number" && (VALID_UPSCALES as readonly number[]).includes(upscaleRaw)
+        ? (upscaleRaw as Upscale)
+        : 1;
+    const upscaleMultiplier = Math.max(1, requestedUpscale * requestedUpscale);
+
     try {
-      await chargeCredits(userId, "design.generate-image");
+      await chargeCredits(userId, "design.generate-image", upscaleMultiplier);
     } catch (err) {
       if (err instanceof InsufficientCreditsError) {
         res.status(402).json({ error: err.message });
@@ -119,7 +144,7 @@ router.post(
         background: requestedBackground,
         model: requestedModel,
       });
-      const enforced = await enforceSize(buf, requestedSize);
+      const enforced = await enforceSize(buf, requestedSize, requestedUpscale);
       const objectPath = await uploadImageBuffer(enforced, "image/png");
       const url = `/api${objectPath.replace(/^\/objects\//, "/storage/images/objects/")}`;
       res.json({ url });
@@ -203,6 +228,104 @@ router.post(
     } catch (err: any) {
       logger.error({ err }, "[nodes] style extraction failed");
       res.status(500).json({ error: err?.message || "Style extraction failed" });
+    }
+  }),
+);
+
+/**
+ * Smart Prompt Expansion: take one base prompt + a target count and return
+ * `count` distinct prompt variations that all describe the same subject but
+ * vary in framing, lighting, mood, palette accents, etc. Used by the
+ * Reference Studio node so each batch slot gets its own nuanced prompt.
+ */
+router.post(
+  "/nodes/expand-prompts",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = (req as AuthRequest).userId;
+    const { prompt, count, mode } = req.body ?? {};
+
+    if (typeof prompt !== "string" || !prompt.trim()) {
+      res.status(400).json({ error: "Prompt is required" });
+      return;
+    }
+    if (prompt.length > MAX_PROMPT_LEN) {
+      res.status(400).json({ error: `Prompt too long (max ${MAX_PROMPT_LEN} chars)` });
+      return;
+    }
+    const n = Number.isFinite(Number(count)) ? Math.max(2, Math.min(16, Math.floor(Number(count)))) : 4;
+    const modeKey = typeof mode === "string" ? mode : "variations";
+
+    try {
+      await chargeCredits(userId, "post.generate-content");
+    } catch (err) {
+      if (err instanceof InsufficientCreditsError) {
+        res.status(402).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+
+    const guidance: Record<string, string> = {
+      variations:
+        "Vary framing, camera angle, lens, lighting direction, time of day, and color emphasis. Keep the SAME subject and overall mood.",
+      styleLock:
+        "Keep the visual style (medium, palette, lighting quality) IDENTICAL across all prompts. Vary only subject pose, angle, or scene context slightly.",
+      subjectLock:
+        "Keep the SAME subject identity (same person/character/object). Vary only background, outfit, action, or environment.",
+      matrix:
+        "Treat the prompts as a 2-axis matrix: vary one axis (e.g. lighting: soft daylight → moody dusk → studio neon → overcast) and a second axis (e.g. angle: front → 3/4 → profile → top-down).",
+      aspectPack:
+        "Same scene composed for different aspect ratios. Vary how the framing is cropped/extended for square, portrait, and landscape orientations while preserving the subject.",
+    };
+    const modeNote = guidance[modeKey] ?? guidance.variations;
+
+    const system = `You are a prompt-engineer for image-generation models.
+Given ONE base prompt, produce exactly ${n} distinct, self-contained variation prompts.
+
+Rules:
+- Output a JSON array of ${n} strings — nothing else, no commentary, no markdown fences.
+- Each prompt must be 1-3 sentences and stand on its own (do not reference "the original" or "variation 2").
+- ${modeNote}
+- Preserve any @refN reference tokens that appear in the base prompt — keep them spelled exactly the same in every variation.
+- Do not invent new @refN tokens that weren't in the base.`;
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: 1500,
+        temperature: 0.9,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: `Base prompt:\n${prompt.trim()}\n\nReturn JSON of the form { "prompts": ["...", "...", ...] } with exactly ${n} entries.`,
+          },
+        ],
+      });
+      const raw = completion.choices?.[0]?.message?.content?.trim() ?? "";
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        res.status(500).json({ error: "Model returned invalid JSON" });
+        return;
+      }
+      const arr = Array.isArray((parsed as { prompts?: unknown }).prompts)
+        ? ((parsed as { prompts: unknown[] }).prompts.filter((x): x is string => typeof x === "string" && x.trim().length > 0))
+        : [];
+      if (arr.length === 0) {
+        res.status(500).json({ error: "Model returned no prompt variations" });
+        return;
+      }
+      // Pad / trim to exactly n entries (use the base prompt as filler if short).
+      const out = arr.slice(0, n);
+      while (out.length < n) out.push(prompt.trim());
+      res.json({ prompts: out });
+    } catch (err: any) {
+      logger.error({ err }, "[nodes] prompt expansion failed");
+      res.status(500).json({ error: err?.message || "Prompt expansion failed" });
     }
   }),
 );

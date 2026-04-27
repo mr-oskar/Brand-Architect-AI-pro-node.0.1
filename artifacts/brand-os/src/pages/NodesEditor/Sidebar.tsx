@@ -40,6 +40,9 @@ import type {
   SettingsNodeData,
   StyleExtractorNodeData,
   BrandKitNodeData,
+  ReferenceStudioNodeData,
+  ReferenceStudioMode,
+  ReferenceStudioResolution,
 } from "./types";
 
 type SidebarSection = "workspaces" | "palette" | "inspector";
@@ -62,6 +65,7 @@ export type SidebarProps = {
   onAddSettings: () => void;
   onAddBrandKit: () => void;
   onAddStyleExtractor: () => void;
+  onAddReferenceStudio: () => void;
   onResetCanvas: () => void;
 
   selectedNode: Node | null;
@@ -377,6 +381,14 @@ export default function Sidebar(props: SidebarProps) {
                   testId="button-add-generate-node"
                 />
                 <PaletteButton
+                  onClick={props.onAddReferenceStudio}
+                  dot="bg-cyan-400 shadow-[0_0_8px_2px_rgba(34,211,238,0.55)]"
+                  icon={<Layers className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
+                  title="Reference studio"
+                  description="Generate 2–16 high-res variations at once"
+                  testId="button-add-reference-studio-node"
+                />
+                <PaletteButton
                   onClick={props.onAddSettings}
                   dot="bg-emerald-300 shadow-[0_0_8px_2px_rgba(110,231,183,0.45)]"
                   icon={<SlidersHorizontal className="w-3.5 h-3.5 text-foreground/85" strokeWidth={1.5} />}
@@ -566,6 +578,7 @@ function InspectorPanel({
       {node.type === "imageInput" && <ImageNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "prompt" && <PromptNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "generateImage" && <GenerateNodeInspector node={node} onUpdate={onUpdate} />}
+      {node.type === "referenceStudio" && <ReferenceStudioInspector node={node} onUpdate={onUpdate} />}
       {node.type === "settings" && <SettingsNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "styleExtractor" && <StyleExtractorNodeInspector node={node} onUpdate={onUpdate} />}
       {node.type === "brandKit" && <BrandKitNodeInspector node={node} onUpdate={onUpdate} />}
@@ -655,6 +668,8 @@ function NodeKindBadge({ type }: { type?: string }) {
       return { Icon: Palette, dot: "bg-fuchsia-300 shadow-[0_0_6px_1px_rgba(240,171,252,0.45)]" };
     if (type === "brandKit")
       return { Icon: Briefcase, dot: "bg-orange-300 shadow-[0_0_6px_1px_rgba(251,146,60,0.45)]" };
+    if (type === "referenceStudio")
+      return { Icon: Layers, dot: "bg-cyan-400 shadow-[0_0_6px_1px_rgba(34,211,238,0.55)]" };
     return { Icon: Layers, dot: "bg-white/30" };
   })();
   const { Icon, dot } = conf;
@@ -677,6 +692,8 @@ function nodeTitle(node: Node): string {
     return ((node.data as StyleExtractorNodeData).label as string) || "Style extractor";
   if (node.type === "brandKit")
     return ((node.data as BrandKitNodeData).label as string) || "Brand kit";
+  if (node.type === "referenceStudio")
+    return ((node.data as ReferenceStudioNodeData).label as string) || "Reference studio";
   return node.type ?? "Node";
 }
 
@@ -848,6 +865,147 @@ function GenerateNodeInspector({
 
       <div className="text-[10px] text-muted-foreground/65 leading-relaxed">
         Status: <span className="font-mono text-foreground/80">{d.status}</span>
+        {d.error && <div className="text-red-300/85 mt-0.5">{d.error}</div>}
+      </div>
+    </div>
+  );
+}
+
+const RS_MODES: { value: ReferenceStudioMode; label: string }[] = [
+  { value: "variations", label: "Variations" },
+  { value: "styleLock", label: "Style lock" },
+  { value: "subjectLock", label: "Subject lock" },
+  { value: "matrix", label: "Matrix" },
+  { value: "aspectPack", label: "Aspect pack" },
+];
+
+const RS_RES: { value: ReferenceStudioResolution; label: string }[] = [
+  { value: "1k", label: "1K" },
+  { value: "2k", label: "2K" },
+  { value: "4k", label: "4K" },
+];
+
+function ReferenceStudioInspector({
+  node,
+  onUpdate,
+}: {
+  node: Node;
+  onUpdate: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const d = node.data as ReferenceStudioNodeData;
+  const total = d.items?.length ?? 0;
+  const done = d.items?.filter((i) => i.status === "done").length ?? 0;
+  const failed = d.items?.filter((i) => i.status === "error").length ?? 0;
+  const upscale = d.resolution === "4k" ? 4 : d.resolution === "2k" ? 2 : 1;
+  const estCu = (d.count ?? 0) * 10 * upscale * upscale;
+  return (
+    <div className="space-y-2.5">
+      <Field label="Label">
+        <input
+          value={d.label ?? "Reference studio"}
+          onChange={(e) => onUpdate(node.id, { label: e.target.value })}
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20"
+          data-testid="inspector-rs-label"
+        />
+      </Field>
+
+      <Field label="Mode">
+        <div className="grid grid-cols-2 gap-1">
+          {RS_MODES.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => onUpdate(node.id, { mode: m.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                d.mode === m.value
+                  ? "border-cyan-400/55 bg-cyan-400/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-rs-mode-${m.value}`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Resolution">
+        <div className="grid grid-cols-3 gap-1">
+          {RS_RES.map((r) => (
+            <button
+              key={r.value}
+              onClick={() => onUpdate(node.id, { resolution: r.value })}
+              className={`py-1.5 rounded-md border text-[9.5px] transition-all ${
+                d.resolution === r.value
+                  ? "border-cyan-400/55 bg-cyan-400/10 text-foreground"
+                  : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+              }`}
+              data-testid={`inspector-rs-res-${r.value}`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <NumberField
+          label="Count"
+          value={d.count ?? 4}
+          onChange={(v) => onUpdate(node.id, { count: Math.max(2, Math.min(16, v)) })}
+          testId="inspector-rs-count"
+        />
+        <NumberField
+          label="Fidelity"
+          value={d.fidelity ?? 50}
+          onChange={(v) => onUpdate(node.id, { fidelity: Math.max(0, Math.min(100, v)) })}
+          testId="inspector-rs-fidelity"
+        />
+      </div>
+
+      <Field label="Seed">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onUpdate(node.id, { seedLocked: !d.seedLocked })}
+            className={`px-2 py-1 rounded-md border text-[9.5px] transition-all ${
+              d.seedLocked
+                ? "border-cyan-400/55 bg-cyan-400/10 text-foreground"
+                : "border-white/[0.05] bg-white/[0.02] text-muted-foreground/80 hover:border-white/15 hover:text-foreground"
+            }`}
+            data-testid="inspector-rs-seed-lock"
+          >
+            {d.seedLocked ? "Locked" : "Unlocked"}
+          </button>
+          <input
+            type="number"
+            value={d.seed ?? 0}
+            onChange={(e) => onUpdate(node.id, { seed: Number(e.target.value) || 0 })}
+            className="flex-1 text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1 text-foreground focus:outline-none focus:border-white/20 font-mono"
+            data-testid="inspector-rs-seed"
+          />
+        </div>
+      </Field>
+
+      <Field label="Prompt">
+        <textarea
+          value={d.prompt ?? ""}
+          onChange={(e) => onUpdate(node.id, { prompt: e.target.value })}
+          rows={4}
+          className="w-full text-[11px] bg-white/[0.025] border border-white/[0.06] rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:border-white/20 resize-none"
+          data-testid="inspector-rs-prompt"
+        />
+      </Field>
+
+      <div className="text-[10px] text-muted-foreground/65 leading-relaxed border-t border-white/[0.05] pt-2 space-y-0.5">
+        <div>
+          Cost estimate: <span className="font-mono text-cyan-200/90">{estCu} CU</span>
+        </div>
+        <div>
+          Progress: <span className="font-mono text-foreground/80">{done}/{total}</span>
+          {failed > 0 && <span className="text-red-300/85"> · {failed} failed</span>}
+        </div>
+        <div>
+          Status: <span className="font-mono text-foreground/80">{d.status ?? "idle"}</span>
+        </div>
         {d.error && <div className="text-red-300/85 mt-0.5">{d.error}</div>}
       </div>
     </div>

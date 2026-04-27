@@ -6,7 +6,8 @@ export type NodeKind =
   | "generateImage"
   | "settings"
   | "styleExtractor"
-  | "brandKit";
+  | "brandKit"
+  | "referenceStudio";
 
 export type GenerateNodeSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
 export type GenerateNodeQuality = "low" | "medium" | "high" | "auto";
@@ -139,6 +140,71 @@ export type BrandKitNodeData = {
   brandId: number | null;
   /** Snapshot of the selected brand so the node renders even before refetching. */
   brandSnapshot: BrandFull | null;
+};
+
+export type ReferenceStudioMode =
+  | "variations"
+  | "styleLock"
+  | "subjectLock"
+  | "matrix"
+  | "aspectPack";
+
+export type ReferenceStudioResolution = "1k" | "2k" | "4k";
+
+export type ReferenceStudioItem = {
+  /** 1-based index inside this batch run. */
+  index: number;
+  status: "pending" | "running" | "done" | "error";
+  url: string | null;
+  error: string | null;
+  /** Resolved prompt sent for this slot (after expansion / mode injection). */
+  prompt: string;
+  seed: number;
+  /** Aspect actually used for this slot (Aspect Pack mode varies it). */
+  size: GenerateNodeSize;
+  selected: boolean;
+  starred: boolean;
+};
+
+export type ReferenceStudioNodeData = {
+  label: string;
+  prompt: string;
+  status: "idle" | "running" | "done" | "error";
+  error: string | null;
+
+  /** User-configurable image count (2–16). */
+  count: number;
+  mode: ReferenceStudioMode;
+  resolution: ReferenceStudioResolution;
+  size: GenerateNodeSize;
+  quality: GenerateNodeQuality;
+  background: GenerateNodeBackground;
+  model: GenerateModel;
+
+  /** 0–100 — controls how strongly the references are preserved. */
+  fidelity: number;
+  /** Base seed (when seedLocked, all slots use this; otherwise random per slot). */
+  seed: number;
+  seedLocked: boolean;
+  /** Optional per-slot expanded prompts (filled by Smart Expansion). */
+  expandedPrompts: string[] | null;
+
+  items: ReferenceStudioItem[];
+
+  /** Decorator-injected (read-only). */
+  references?: ReferenceMention[];
+  inheritedSettings?: SettingsNodeData | null;
+  inheritedBrand?: BrandFull | null;
+
+  /** Decorator-injected callbacks. */
+  onPromptChange?: (id: string, text: string) => void;
+  onRun?: (id: string) => void;
+  onRetryFailed?: (id: string) => void;
+  onRetryItem?: (id: string, index: number) => void;
+  onSettingsChange?: (id: string, patch: Partial<ReferenceStudioNodeData>) => void;
+  onExpandPrompts?: (id: string) => void;
+  onPromoteSelected?: (id: string) => void;
+  onClearResults?: (id: string) => void;
 };
 
 export type WorkspaceState = {
