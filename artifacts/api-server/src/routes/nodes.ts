@@ -131,18 +131,23 @@ router.post(
   }),
 );
 
-const STYLE_EXTRACT_SYSTEM = `You are an expert visual prompt engineer. Given an image, write a single, dense paragraph describing it as a professional image-generation prompt that another AI could use to recreate the same visual style and composition.
+const STYLE_EXTRACT_SYSTEM = `You are an expert visual prompt engineer. Given an image, write a single dense paragraph that captures ONLY the visual STYLE of that image, so it can be applied as a style overlay to ANY other subject without distorting that subject.
 
-Cover, in flowing prose (no headings, no bullets):
-- Subject and composition
-- Art style / medium (photo, illustration, 3D render, etc.)
-- Color palette (specific hues)
-- Lighting (direction, quality, mood)
-- Texture, materials, finish
-- Camera / framing (angle, focal length, depth of field) when applicable
+Strict rules:
+- Do NOT describe the subject, characters, objects, scene, action, or composition of the source image.
+- Do NOT include nouns that name the depicted content (e.g. "a cat on a chair") — describe only HOW it looks, not WHAT is shown.
+- Do NOT mention the source image, the analysis task, or that this is a description.
+- Write the paragraph as a reusable style instruction that begins with phrasing like "Render in a style characterized by…" or "Apply a visual treatment featuring…".
+
+Cover ONLY these stylistic dimensions, in flowing prose (no headings, no bullets):
+- Art style / medium (photo, oil painting, 3D render, vector, anime, etc.)
+- Color palette (specific hues, saturation, contrast)
+- Lighting quality (direction, hardness, color temperature, mood)
+- Texture, materials, surface finish, grain
+- Rendering technique, line quality, brushwork, post-processing
 - Mood and overall atmosphere
 
-Keep it under 180 words. Do not mention the source image — write the prompt as if instructing the model from scratch.`;
+Keep it under 160 words.`;
 
 router.post(
   "/nodes/extract-style",

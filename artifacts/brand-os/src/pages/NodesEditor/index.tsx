@@ -164,8 +164,27 @@ function NodesEditorInner() {
     [nodes, persist],
   );
 
+  // Strict connection rules: a handle may only mate with its dedicated counterpart.
+  // - "settings" source  -> only "settings" target
+  // - "prompt"   source  -> only "prompt"   target
+  // - "image"    source  -> "references" target (Generate) or "image" target (StyleExtractor)
+  // No self-connections. A drag that doesn't land on a valid handle is rejected.
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    const { source, target, sourceHandle, targetHandle } = connection as Connection;
+    if (!source || !target || source === target) return false;
+    if (!sourceHandle || !targetHandle) return false;
+
+    if (sourceHandle === "settings" || targetHandle === "settings") {
+      return sourceHandle === "settings" && targetHandle === "settings";
+    }
+    if (sourceHandle === "prompt") return targetHandle === "prompt";
+    if (sourceHandle === "image") return targetHandle === "references" || targetHandle === "image";
+    return false;
+  }, []);
+
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (!isValidConnection(connection)) return;
       setEdges((eds) => {
         const next = addEdge(
           { ...connection, animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
@@ -175,7 +194,7 @@ function NodesEditorInner() {
         return next;
       });
     },
-    [nodes, persist],
+    [nodes, persist, isValidConnection],
   );
 
   const onEdgeDoubleClick = useCallback(
@@ -314,13 +333,14 @@ function NodesEditorInner() {
     return map;
   }, [nodes, edges]);
 
-  // ===== Settings inherited per node (from a SettingsNode connected via "settings" handle) =====
+  // ===== Settings inherited per node (from a SettingsNode connected via the "settings" handle) =====
   const settingsByTargetId = useMemo(() => {
     const map = new Map<string, SettingsNodeData>();
     for (const e of edges) {
+      // Settings flows only through matching "settings" handles on both ends.
+      if (e.sourceHandle !== "settings" || e.targetHandle !== "settings") continue;
       const src = nodes.find((x) => x.id === e.source);
       if (!src || src.type !== "settings") continue;
-      // accept any target — we treat connections from a settings source as "apply"
       map.set(e.target, src.data as SettingsNodeData);
     }
     return map;
@@ -457,19 +477,44 @@ function NodesEditorInner() {
 
       if (settingsRefDataUrl) resolved.push(settingsRefDataUrl);
 
-      // Optional fallback: Prompt node OR StyleExtractor node connected to "prompt" handle.
-      let prompt = inNodePrompt;
-      if (!prompt) {
-        const incoming = edges.filter((e) => e.target === genNodeId && e.targetHandle === "prompt");
-        for (const e of incoming) {
+      // Inputs on the generate node's "prompt" handle:
+      // - Prompt nodes contribute the user's CONTENT request (subject, action, scene)
+      // - StyleExtractor nodes contribute a STYLE LAYER that is applied without
+      //   altering the subject or composition the user asked for.
+      const promptIncoming = edges.filter(
+        (e) => e.target === genNodeId && e.targetHandle === "prompt",
+      );
+
+      let userPrompt = inNodePrompt;
+      if (!userPrompt) {
+        for (const e of promptIncoming) {
           const n = nodes.find((x) => x.id === e.source);
-          if (!n) continue;
+          if (!n || n.type !== "prompt") continue;
           const text = (n.data as { text?: string }).text;
-          if ((n.type === "prompt" || n.type === "styleExtractor") && typeof text === "string" && text.trim()) {
-            prompt = text.trim();
+          if (typeof text === "string" && text.trim()) {
+            userPrompt = text.trim();
             break;
           }
         }
+      }
+
+      const styleInstructions: string[] = [];
+      for (const e of promptIncoming) {
+        const n = nodes.find((x) => x.id === e.source);
+        if (!n || n.type !== "styleExtractor") continue;
+        const text = (n.data as { text?: string }).text;
+        if (typeof text === "string" && text.trim()) {
+          styleInstructions.push(text.trim());
+        }
+      }
+
+      // If no user prompt is present, fall back to the style description so the
+      // node still produces something instead of erroring out.
+      let prompt = userPrompt;
+      let styleOnlyMode = false;
+      if (!prompt && styleInstructions.length > 0) {
+        prompt = styleInstructions.join("\n\n");
+        styleOnlyMode = true;
       }
 
       if (!prompt) {
@@ -481,11 +526,18 @@ function NodesEditorInner() {
         return;
       }
 
-      // Inject Settings node's text reference + unified prompt prefix.
+      // Compose: settings prefix → settings text reference → user content → style layer.
+      // The style layer is added LAST and explicitly told not to override the subject,
+      // so the StyleExtractor adapts cleanly when the user also wires up prompt + refs.
       const sections: string[] = [];
       if (inh?.unifiedPrompt?.trim()) sections.push(inh.unifiedPrompt.trim());
       if (inh?.textReference?.trim()) sections.push(`Style / brand reference:\n${inh.textReference.trim()}`);
-      sections.push(prompt);
+      sections.push(styleOnlyMode ? prompt : `User request:\n${prompt}`);
+      if (!styleOnlyMode && styleInstructions.length > 0) {
+        sections.push(
+          `Visual style guide (apply these stylistic qualities — palette, lighting, medium, mood, texture, framing — without changing the subject, composition, or content above):\n${styleInstructions.join("\n\n")}`,
+        );
+      }
       const composedPrompt = sections.join("\n\n");
 
       // Replace @refN tokens with explicit references the model understands.
