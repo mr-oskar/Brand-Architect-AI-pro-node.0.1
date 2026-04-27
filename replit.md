@@ -10,7 +10,7 @@ Cloned from https://github.com/mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3
 
 - pnpm workspace monorepo (Node 24, TypeScript 5.9)
 - Backend: Express 5 (`artifacts/api-server`) on port 8080
-- Frontend: React 19 + Vite 7 SPA (`artifacts/brand-os`) on port 5173
+- Frontend: React 19 + Vite 7 SPA (`artifacts/brand-os`) on port 5000 (Replit webview)
 - DB: PostgreSQL + Drizzle ORM (`lib/db`)
 - AI: OpenAI + Gemini (via `lib/integrations/`)
 - Auth: Clerk (frontend) + JWT/session (backend)
@@ -26,8 +26,8 @@ Cloned from https://github.com/mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3
 
 ## Workflows
 
-- `API Server` — `PORT=8080 pnpm --filter @workspace/api-server run dev`
-- `Start application` — `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev`
+- `API Server` — `PORT=8080 pnpm --filter @workspace/api-server run dev` (console)
+- `Start application` — `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` (webview, port 5000 required by Replit preview)
 
 > Do not run both `API Server` and `artifacts/api-server: API Server` simultaneously (port collision).
 
