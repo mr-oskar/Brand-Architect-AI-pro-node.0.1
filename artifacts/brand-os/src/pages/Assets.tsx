@@ -1,10 +1,47 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Library, Search, Upload, Filter, Grid3X3, List, Image, FileText,
+  Search, Upload, Filter, Grid3X3, List, Image, FileText,
   Film, Download, Copy, Trash2, Tag, FolderOpen, Star, Clock, Sparkles,
-  ChevronDown,
+  ChevronDown, Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { consumeExport } from "@/lib/nodesExport";
+import ImageLightbox from "@/components/ImageLightbox";
+import { notifySuccess } from "@/lib/apiError";
+
+type RuntimeAsset = {
+  id: string;
+  name: string;
+  type: string;
+  brand: string;
+  tags: string[];
+  size: string;
+  updated: string;
+  starred: boolean;
+  color: string;
+  imageUrl: string;
+  prompt?: string;
+  source: "nodes-editor";
+  createdAt: number;
+};
+
+const RUNTIME_ASSETS_KEY = "assets:runtime-list";
+
+function loadRuntimeAssets(): RuntimeAsset[] {
+  try {
+    const raw = localStorage.getItem(RUNTIME_ASSETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as RuntimeAsset[];
+  } catch {}
+  return [];
+}
+
+function saveRuntimeAssets(items: RuntimeAsset[]) {
+  try {
+    localStorage.setItem(RUNTIME_ASSETS_KEY, JSON.stringify(items));
+  } catch {}
+}
 
 const categories = ["All", "Logos", "Images", "Videos", "Documents", "Fonts"];
 
@@ -28,6 +65,50 @@ export default function Assets() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
+  const [runtimeAssets, setRuntimeAssets] = useState<RuntimeAsset[]>(() => loadRuntimeAssets());
+  const [lightbox, setLightbox] = useState<RuntimeAsset | null>(null);
+
+  // Consume any pending export from the Nodes editor
+  useEffect(() => {
+    const pending = consumeExport("assets");
+    if (pending?.imageUrl) {
+      const newAsset: RuntimeAsset = {
+        id: `nodes-${pending.createdAt}`,
+        name: pending.prompt ? pending.prompt.slice(0, 60) : "Generated Image",
+        type: "Image",
+        brand: "Nodes Editor",
+        tags: ["ai", "nodes"],
+        size: "—",
+        updated: "Just now",
+        starred: false,
+        color: "#8B5CF6",
+        imageUrl: pending.imageUrl,
+        prompt: pending.prompt,
+        source: "nodes-editor",
+        createdAt: pending.createdAt,
+      };
+      setRuntimeAssets((prev) => {
+        const next = [newAsset, ...prev];
+        saveRuntimeAssets(next);
+        return next;
+      });
+      notifySuccess("تمت إضافة صورة جديدة من محرر العقد");
+    }
+  }, []);
+
+  const removeRuntime = (id: string) => {
+    setRuntimeAssets((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      saveRuntimeAssets(next);
+      return next;
+    });
+  };
+
+  const filteredRuntime = runtimeAssets.filter((a) => {
+    const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
+    const matchesCat = activeCategory === "All" || a.type.toLowerCase().includes(activeCategory.toLowerCase().replace(/s$/, ""));
+    return matchesSearch && matchesCat;
+  });
 
   const filtered = mockAssets.filter((a) => {
     const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
@@ -136,6 +217,67 @@ export default function Assets() {
             </div>
           </button>
 
+          {/* Runtime assets received from Nodes editor */}
+          {filteredRuntime.map((asset) => (
+            <div key={asset.id} className="rounded-xl border border-violet-500/30 bg-card overflow-hidden group hover:shadow-md transition-shadow ring-1 ring-violet-500/10">
+              <div className="h-36 relative bg-muted/40">
+                <button
+                  type="button"
+                  onClick={() => setLightbox(asset)}
+                  className="block w-full h-full cursor-zoom-in"
+                  data-testid={`button-runtime-asset-${asset.id}`}
+                >
+                  <img src={asset.imageUrl} alt={asset.name} className="w-full h-full object-cover" />
+                </button>
+                <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-violet-500/85 text-white text-[9.5px] font-semibold">
+                  <Workflow className="w-2.5 h-2.5" />
+                  Nodes
+                </span>
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                  <a
+                    href={asset.imageUrl}
+                    download={`${asset.name}.png`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded-md bg-white/90 text-foreground hover:bg-white transition-colors"
+                    title="تحميل"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </a>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(asset.imageUrl).then(() => notifySuccess("تم نسخ الرابط"))}
+                    className="p-1.5 rounded-md bg-white/90 text-foreground hover:bg-white transition-colors"
+                    title="نسخ الرابط"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => removeRuntime(asset.id)}
+                    className="p-1.5 rounded-md bg-white/90 text-destructive hover:bg-white transition-colors"
+                    title="حذف"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-3">
+                <p className="text-sm font-medium text-foreground truncate">{asset.name}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{asset.brand}</p>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {asset.tags.slice(0, 2).map((tag) => (
+                    <span key={tag} className="inline-flex items-center gap-1 text-[10px] bg-violet-500/10 text-violet-300 px-1.5 py-0.5 rounded">
+                      <Tag className="w-2.5 h-2.5" /> {tag}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between mt-2 text-[11px] text-muted-foreground">
+                  <span>{asset.size}</span>
+                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {asset.updated}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+
           {filtered.map((asset) => (
             <div key={asset.id} className="rounded-xl border border-card-border bg-card overflow-hidden group hover:shadow-md transition-shadow">
               {/* Preview */}
@@ -235,13 +377,22 @@ export default function Assets() {
         </div>
       )}
 
-      {filtered.length === 0 && (
+      {filtered.length === 0 && filteredRuntime.length === 0 && (
         <div className="rounded-xl border border-dashed border-border bg-muted/20 p-12 text-center">
           <FolderOpen className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-sm font-medium text-muted-foreground">No assets found</p>
           <p className="text-xs text-muted-foreground/60 mt-1">Try a different search or upload new assets.</p>
         </div>
       )}
+
+      <ImageLightbox
+        open={lightbox != null}
+        onOpenChange={(o) => { if (!o) setLightbox(null); }}
+        src={lightbox?.imageUrl ?? null}
+        title={lightbox?.name}
+        subtitle={lightbox?.prompt}
+        filename={lightbox ? `${lightbox.name}.png` : undefined}
+      />
     </div>
   );
 }
