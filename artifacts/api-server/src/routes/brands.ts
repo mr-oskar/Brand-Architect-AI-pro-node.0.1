@@ -14,14 +14,14 @@ import {
   GetBrandStatsParams,
 } from "@workspace/api-zod";
 import { generateBrandKit, generateCampaign, generateBrandStory, generateLongFormContent, type BrandKit } from "../lib/ai";
-import { chargeCredits } from "../lib/credits";
+import { chargeCredits, refundCredits } from "../lib/credits";
 import { fetchIndustryTrends } from "../lib/trends";
 import { asyncHandler } from "../lib/asyncHandler";
 import { createJob, updateJob } from "../lib/jobStore";
 import { requireAuth, type AuthRequest } from "../middlewares/requireAuth";
 import { randomUUID } from "crypto";
 import { generateLogoVariants, dataUrlToBuffer, extractLogoColors } from "../lib/logoProcessor";
-import { uploadImageBuffer } from "../lib/imageStorage";
+import { uploadImageBuffer, storagePathToUrl } from "../lib/imageStorage";
 
 const router: IRouter = Router();
 
@@ -196,9 +196,9 @@ router.post("/brands/:id/generate-logo-variants", requireAuth, asyncHandler(asyn
 
   const logoVariants = {
     original: brand.logoUrl,
-    black: `/api/storage/images${blackPath}`,
-    white: `/api/storage/images${whitePath}`,
-    grayscale: `/api/storage/images${grayPath}`,
+    black: storagePathToUrl(blackPath),
+    white: storagePathToUrl(whitePath),
+    grayscale: storagePathToUrl(grayPath),
   };
 
   const [updated] = await db
@@ -271,35 +271,30 @@ router.post("/brands/:id/generate-content", requireAuth, asyncHandler(async (req
   res.json(content);
 }));
 
-// ─── Generate campaign ────────────────────────────────────────────────────────
+// ─── Shared campaign execution logic ─────────────────────────────────────────
 
-router.post("/brands/:id/generate-campaign", requireAuth, asyncHandler(async (req, res) => {
-  const userId = (req as AuthRequest).userId;
-  const params = GenerateCampaignParams.safeParse(req.params);
-  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-
-  const bodyParsed = GenerateCampaignBody.safeParse(req.body ?? {});
-  const brief = bodyParsed.success ? (bodyParsed.data.brief ?? undefined) : undefined;
-  const postCount = bodyParsed.success ? (bodyParsed.data.postCount ?? 7) : 7;
-  const platforms = (req.body as { platforms?: string[] })?.platforms ?? ["instagram"];
-
-  const [brand] = await db.select().from(brandsTable).where(and(eq(brandsTable.id, params.data.id), eq(brandsTable.userId, userId)));
-  if (!brand) { res.status(404).json({ error: "Brand not found" }); return; }
-
-  await chargeCredits(userId, "brand.generate-campaign", Math.max(1, postCount / 7));
-
+async function runCampaignGeneration(
+  brandId: number,
+  userId: string,
+  brand: { id: number; companyName: string; companyDescription: string; industry: string; brandKit: unknown },
+  brief: string | undefined,
+  postCount: number,
+  platforms: string[],
+  onProgress?: (step: number) => void,
+) {
   let kit = brand.brandKit as BrandKit | null;
-
   if (!kit) {
     kit = await generateBrandKit(brand.companyName, brand.companyDescription, brand.industry);
-    await db.update(brandsTable).set({ brandKit: kit, status: "kit_ready" }).where(and(eq(brandsTable.id, params.data.id), eq(brandsTable.userId, userId)));
+    await db.update(brandsTable).set({ brandKit: kit, status: "kit_ready" }).where(and(eq(brandsTable.id, brandId), eq(brandsTable.userId, userId)));
   }
+  onProgress?.(1);
 
   const trendData = await fetchIndustryTrends(brand.industry, brief);
+  onProgress?.(2);
 
   const campaignData = await generateCampaign(
     brand.companyName, brand.companyDescription, brand.industry, kit, brief, postCount, platforms,
-    trendData.summary
+    trendData.summary,
   );
 
   const [campaign] = await db
@@ -325,7 +320,7 @@ router.post("/brands/:id/generate-campaign", requireAuth, asyncHandler(async (re
 
   await db.update(brandsTable).set({ status: "active" }).where(and(eq(brandsTable.id, brand.id), eq(brandsTable.userId, userId)));
 
-  res.json({
+  return {
     id: campaign.id,
     brandId: campaign.brandId,
     title: campaign.title,
@@ -334,7 +329,28 @@ router.post("/brands/:id/generate-campaign", requireAuth, asyncHandler(async (re
     posts: insertedPosts.map((p) => ({ ...p, createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString() })),
     createdAt: campaign.createdAt.toISOString(),
     updatedAt: campaign.updatedAt.toISOString(),
-  });
+  };
+}
+
+// ─── Generate campaign ────────────────────────────────────────────────────────
+
+router.post("/brands/:id/generate-campaign", requireAuth, asyncHandler(async (req, res) => {
+  const userId = (req as AuthRequest).userId;
+  const params = GenerateCampaignParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+
+  const bodyParsed = GenerateCampaignBody.safeParse(req.body ?? {});
+  const brief = bodyParsed.success ? (bodyParsed.data.brief ?? undefined) : undefined;
+  const postCount = bodyParsed.success ? (bodyParsed.data.postCount ?? 7) : 7;
+  const platforms = (req.body as { platforms?: string[] })?.platforms ?? ["instagram"];
+
+  const [brand] = await db.select().from(brandsTable).where(and(eq(brandsTable.id, params.data.id), eq(brandsTable.userId, userId)));
+  if (!brand) { res.status(404).json({ error: "Brand not found" }); return; }
+
+  await chargeCredits(userId, "brand.generate-campaign", Math.max(1, postCount / 7));
+
+  const result = await runCampaignGeneration(params.data.id, userId, brand, brief, postCount, platforms);
+  res.json(result);
 }));
 
 // ─── Async campaign generation (returns job id immediately) ──────────────────
@@ -352,7 +368,7 @@ router.post("/brands/:id/generate-campaign-async", requireAuth, asyncHandler(asy
   const [brand] = await db.select().from(brandsTable).where(and(eq(brandsTable.id, params.data.id), eq(brandsTable.userId, userId)));
   if (!brand) { res.status(404).json({ error: "Brand not found" }); return; }
 
-  await chargeCredits(userId, "brand.generate-campaign", Math.max(1, postCount / 7));
+  const { charged } = await chargeCredits(userId, "brand.generate-campaign", Math.max(1, postCount / 7));
 
   const jobId = randomUUID();
   createJob(jobId, 3, userId);
@@ -361,61 +377,14 @@ router.post("/brands/:id/generate-campaign-async", requireAuth, asyncHandler(asy
   (async () => {
     try {
       updateJob(jobId, { status: "running", progress: 0 });
-
-      let kit = brand.brandKit as BrandKit | null;
-      if (!kit) {
-        kit = await generateBrandKit(brand.companyName, brand.companyDescription, brand.industry);
-        await db.update(brandsTable).set({ brandKit: kit, status: "kit_ready" }).where(and(eq(brandsTable.id, params.data.id), eq(brandsTable.userId, userId)));
-      }
-      updateJob(jobId, { progress: 1 });
-
-      const trendData = await fetchIndustryTrends(brand.industry, brief);
-      updateJob(jobId, { progress: 2 });
-
-      const campaignData = await generateCampaign(
-        brand.companyName, brand.companyDescription, brand.industry, kit, brief, postCount, platforms,
-        trendData.summary
+      const result = await runCampaignGeneration(
+        params.data.id, userId, brand, brief, postCount, platforms,
+        (step) => updateJob(jobId, { progress: step }),
       );
-
-      const [campaign] = await db
-        .insert(campaignsTable)
-        .values({ brandId: brand.id, title: campaignData.title, strategy: campaignData.strategy, days: campaignData.days })
-        .returning();
-
-      const insertedPosts = await db
-        .insert(postsTable)
-        .values(
-          campaignData.posts.map((p) => ({
-            campaignId: campaign.id,
-            day: p.day,
-            caption: p.caption,
-            hook: p.hook,
-            cta: p.cta,
-            hashtags: p.hashtags,
-            imagePrompt: p.imagePrompt,
-            platform: p.platform,
-          }))
-        )
-        .returning();
-
-      await db.update(brandsTable).set({ status: "active" }).where(and(eq(brandsTable.id, brand.id), eq(brandsTable.userId, userId)));
-
-      updateJob(jobId, {
-        status: "done",
-        progress: 3,
-        result: {
-          id: campaign.id,
-          brandId: campaign.brandId,
-          title: campaign.title,
-          strategy: campaign.strategy,
-          days: campaign.days,
-          posts: insertedPosts.map((p) => ({ ...p, createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString() })),
-          createdAt: campaign.createdAt.toISOString(),
-          updatedAt: campaign.updatedAt.toISOString(),
-        },
-      });
+      updateJob(jobId, { status: "done", progress: 3, result });
     } catch (err) {
       updateJob(jobId, { status: "failed", error: err instanceof Error ? err.message : "Unknown error" });
+      await refundCredits(userId, charged).catch(() => {});
     }
   })();
 }));

@@ -85,9 +85,7 @@ export async function fetchIndustryTrends(
       fetchGoogleTrendsRSS(),
     ]);
 
-    const [marketingHeadlines] = await Promise.all([
-      fetchGoogleNewsRSS(queries[1]),
-    ]);
+    const marketingHeadlines = await fetchGoogleNewsRSS(queries[1]);
 
     const allHeadlines = [
       ...industryHeadlines.slice(0, 6),

@@ -11,7 +11,7 @@ import {
   type ImageBackground,
   type ImageModel,
 } from "@workspace/integrations-openai-ai-server";
-import { uploadImageBuffer } from "../lib/imageStorage";
+import { uploadImageBuffer, storagePathToUrl } from "../lib/imageStorage";
 import { chargeCredits, InsufficientCreditsError } from "../lib/credits";
 import { logger } from "../lib/logger";
 
@@ -146,7 +146,7 @@ router.post(
       });
       const enforced = await enforceSize(buf, requestedSize, requestedUpscale);
       const objectPath = await uploadImageBuffer(enforced, "image/png");
-      const url = `/api${objectPath.replace(/^\/objects\//, "/storage/images/objects/")}`;
+      const url = storagePathToUrl(objectPath);
       res.json({ url });
     } catch (err: any) {
       logger.error({ err }, "[nodes] image generation failed");
@@ -203,7 +203,7 @@ router.post(
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        max_tokens: 500,
+        max_completion_tokens: 500,
         temperature: 0.4,
         messages: [
           { role: "system", content: STYLE_EXTRACT_SYSTEM },
@@ -293,7 +293,7 @@ Rules:
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        max_tokens: 1500,
+        max_completion_tokens: 1500,
         temperature: 0.9,
         response_format: { type: "json_object" },
         messages: [

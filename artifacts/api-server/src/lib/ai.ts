@@ -81,9 +81,13 @@ export interface LongFormContent {
 // ─── Core AI caller ───────────────────────────────────────────────────────────
 
 async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 8192): Promise<string> {
+  const model = process.env.AI_TEXT_MODEL || "gpt-5-nano";
+  const rawTemp = parseFloat(process.env.AI_TEMPERATURE ?? "");
+  const temperature = !isNaN(rawTemp) ? rawTemp : undefined;
   const response = await openai.chat.completions.create({
-    model: "gpt-5-nano",
+    model,
     max_completion_tokens: maxTokens,
+    ...(temperature !== undefined ? { temperature } : {}),
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

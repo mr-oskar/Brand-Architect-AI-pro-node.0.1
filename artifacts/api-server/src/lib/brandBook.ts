@@ -160,7 +160,7 @@ Return STRICT JSON with this exact shape:
     ],
     response_format: { type: "json_object" },
     temperature: 0.6,
-    max_tokens: 1400,
+    max_completion_tokens: 1400,
   });
 
   return JSON.parse(res.choices[0].message.content || "{}") as AIContent;
