@@ -2,25 +2,40 @@ import fs from "node:fs";
 import OpenAI, { toFile } from "openai";
 import { Buffer } from "node:buffer";
 
-const geminiKey = process.env.GEMINI_API_KEY;
-const userKey = process.env.OPENAI_API_KEY;
-const proxyKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-const proxyBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-
-const defaultProvider: "gemini" | "openai" = geminiKey ? "gemini" : "openai";
-
-let openaiClient: OpenAI | null = null;
-if (userKey) {
-  openaiClient = new OpenAI({ apiKey: userKey, baseURL: process.env.OPENAI_BASE_URL || undefined });
-} else if (proxyKey && proxyBaseUrl) {
-  openaiClient = new OpenAI({ apiKey: proxyKey, baseURL: proxyBaseUrl });
-} else if (defaultProvider === "openai") {
-  throw new Error(
-    "No image provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or provision the Replit OpenAI AI integration.",
-  );
+// Lazy provider resolution — evaluated on first use so the server can start
+// even when no AI credentials are present in the environment yet.
+function resolveOpenAIClient(): OpenAI | null {
+  const userKey = process.env.OPENAI_API_KEY;
+  const proxyKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const proxyBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (userKey) {
+    return new OpenAI({ apiKey: userKey, baseURL: process.env.OPENAI_BASE_URL || undefined });
+  }
+  if (proxyKey && proxyBaseUrl) {
+    return new OpenAI({ apiKey: proxyKey, baseURL: proxyBaseUrl });
+  }
+  return null;
 }
 
-export const openai = openaiClient ?? new OpenAI({ apiKey: "noop" });
+function getDefaultProvider(): "gemini" | "openai" {
+  return process.env.GEMINI_API_KEY ? "gemini" : "openai";
+}
+
+function getOpenAIClient(): OpenAI {
+  const client = resolveOpenAIClient();
+  if (!client) {
+    throw new Error(
+      "No image provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or provision the Replit OpenAI AI integration.",
+    );
+  }
+  return client;
+}
+
+export const openai: OpenAI = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return (getOpenAIClient() as any)[prop];
+  },
+});
 
 export type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
 export type ImageQuality = "low" | "medium" | "high" | "auto";
@@ -35,9 +50,10 @@ export interface ImageGenOptions {
 }
 
 function resolveProvider(model?: ImageModel): "gemini" | "openai" {
+  const defaultProvider = getDefaultProvider();
   if (!model || model === "auto") return defaultProvider;
   if (model === "gpt-image-1") {
-    if (!openaiClient) {
+    if (!resolveOpenAIClient()) {
       throw new Error(
         "OpenAI gpt-image-1 selected but no OpenAI key is configured. Set OPENAI_API_KEY or provision the Replit OpenAI integration.",
       );
@@ -45,7 +61,7 @@ function resolveProvider(model?: ImageModel): "gemini" | "openai" {
     return "openai";
   }
   if (model === "gemini-2.5-flash-image") {
-    if (!geminiKey) {
+    if (!process.env.GEMINI_API_KEY) {
       throw new Error(
         "Gemini 2.5 Flash Image selected but GEMINI_API_KEY is not set.",
       );
@@ -75,7 +91,9 @@ interface GeminiPart {
 }
 
 async function geminiGenerateImage(parts: GeminiPart[]): Promise<Buffer> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiImageModel()}:generateContent?key=${encodeURIComponent(geminiKey!)}`;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) throw new Error("GEMINI_API_KEY is not set.");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiImageModel()}:generateContent?key=${encodeURIComponent(geminiKey)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
