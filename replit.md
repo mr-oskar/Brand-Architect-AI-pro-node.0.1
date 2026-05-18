@@ -9,27 +9,60 @@ Cloned from https://github.com/mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3
 ## Stack (quick reference)
 
 - pnpm workspace monorepo (Node 24, TypeScript 5.9)
-- Backend: Express 5 (`artifacts/api-server`) on port 8080
+- **Backend (active):** Python 3 + FastAPI + Uvicorn (`artifacts/api-server-python`) on port 8080
+- **Backend (original, parked):** Express 5 TypeScript (`artifacts/api-server`) — do NOT start simultaneously with the Python backend
 - Frontend: React 19 + Vite 7 SPA (`artifacts/brand-os`) on port 5000 (Replit webview)
-- DB: PostgreSQL + Drizzle ORM (`lib/db`)
-- AI: OpenAI + Gemini (via `lib/integrations/`)
-- Auth: Clerk (frontend) + JWT/session (backend)
+- DB: PostgreSQL (Replit native) — schema managed by Drizzle ORM (TypeScript side), read by SQLAlchemy (Python side)
+- AI: OpenAI (`OPENAI_API_KEY`) + Gemini (`GEMINI_API_KEY`) — set via Replit Secrets
+- Auth: HTTP-only cookie JWT (Python backend) — pluggable, see `app/layers/auth.py`
+
+## Python Backend — key files
+
+```
+artifacts/api-server-python/
+  main.py                    ← entry point (uvicorn main:app)
+  app/
+    config.py                ← env var config (pydantic-settings)
+    models.py                ← SQLAlchemy ORM (matches actual DB schema)
+    schemas.py               ← Pydantic request/response schemas
+    database.py              ← SQLAlchemy engine + SessionLocal
+    deps.py                  ← FastAPI dependencies (auth, db)
+    layers/
+      auth.py                ← JWT + bcrypt auth (pluggable)
+      credits.py             ← credit deduction/refund (disable: CREDITS_ENABLED=false)
+      payments.py            ← Stripe stub (documented, not implemented)
+    routes/
+      auth.py / brands.py / campaigns.py / posts.py / dashboard.py / system.py
+    services/
+      ai/client.py           ← OpenAI/Gemini client resolver
+      ai/brand_kit.py        ← brand kit generation prompt (ported from TS)
+      ai/campaign.py         ← campaign generation prompt (ported from TS)
+      ai/post.py             ← post regenerate/variant/content prompts
+      ai/image.py            ← image generation (with logo/references)
+      image_storage.py       ← local file storage for generated images
+      job_store.py           ← in-memory background job tracker
+  EXCLUDED_FEATURES.md       ← full list of excluded features + how to add them
+```
 
 ## Configured env (Replit)
 
-- `DATABASE_URL` (Replit Postgres)
-- `SESSION_SECRET`, `AUTH_JWT_SECRET`
-- `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY` (auto)
-- `GEMINI_API_KEY` (user secret)
-- `GITHUB_PERSONAL_ACCESS_TOKEN` (user secret — stored in `~/.git-credentials`)
-- `VITE_CLERK_PUBLISHABLE_KEY` (test key)
+- `DATABASE_URL` (Replit Postgres — auto-set)
+- `AUTH_JWT_SECRET` — used by Python backend for JWT signing
+- `OPENAI_API_KEY` — set via Replit Secrets for AI features
+- `GEMINI_API_KEY` — set via Replit Secrets for Gemini AI fallback
+- `CREDITS_ENABLED` — set to `false` to disable credit checking (default: true)
+- `GITHUB_PERSONAL_ACCESS_TOKEN` — stored in `~/.git-credentials`
+
+> **Note:** The Replit JavaScript AI integrations (`AI_INTEGRATIONS_OPENAI_*`) are JS-only packages.
+> For the Python backend, set `OPENAI_API_KEY` directly via Replit Secrets.
 
 ## Workflows
 
-- `API Server` — `PORT=8080 pnpm --filter @workspace/api-server run dev` (console)
-- `Start application` — `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` (webview, port 5000 required by Replit preview)
+- `Python API Server` — `cd artifacts/api-server-python && uvicorn main:app --host 0.0.0.0 --port 8080 --reload` **(active)**
+- `Start application` — `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` (webview, port 5000)
+- `API Server` — original TypeScript backend (parked — do NOT start with Python backend running)
 
-> Do not run both `API Server` and `artifacts/api-server: API Server` simultaneously (port collision).
+> Do not run `Python API Server` and `API Server` simultaneously — both bind to port 8080.
 
 ## Common commands
 

@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "python-3.11"]
 
 [deployment]
 router = "application"
@@ -24,6 +24,10 @@ args = "API Server"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Python API Server"
+
 [[workflows.workflow]]
 name = "API Server"
 author = "agent"
@@ -47,6 +51,18 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow]]
+name = "Python API Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/api-server-python && uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -77,10 +93,6 @@ externalPort = 3002
 localPort = 8080
 externalPort = 8080
 
-[[ports]]
-localPort = 18565
-externalPort = 3000
-
 [userenv]
 
 [userenv.shared]
@@ -89,3 +101,4 @@ AUTH_JWT_SECRET = "530d048c3ec09f6ec466f7806c8a19908f81c52c19a6fdc26118e1abcc616
 
 [nix]
 channel = "stable-25_05"
+packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tk", "zlib"]
