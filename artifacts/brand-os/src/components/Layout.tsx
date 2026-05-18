@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard, Sparkles, PlusCircle, Menu, X, BarChart3,
+  LayoutDashboard, Sparkles, PlusCircle, Menu, X,
   Library, LayoutTemplate, ShieldCheck, ChevronRight, Bell, Moon, Sun, CalendarDays, LogOut, Workflow,
 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -16,7 +16,6 @@ function buildNavSections(isAdmin: boolean, features: { analytics: boolean; temp
     { href: "/calendar", label: "Content Calendar", icon: CalendarDays },
     { href: "/assets", label: "Asset Library", icon: Library },
   ];
-  if (features.analytics !== false) tools.unshift({ href: "/analytics", label: "Analytics", icon: BarChart3 });
   if (features.templates !== false) tools.push({ href: "/templates", label: "Templates", icon: LayoutTemplate });
 
   const sections = [

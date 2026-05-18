@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { useGetDashboardSummary, useListBrands, getGetDashboardSummaryQueryKey, getListBrandsQueryKey } from "@workspace/api-client-react";
 import {
   Building2, Megaphone, FileText, PlusCircle, ArrowRight, Sparkles,
-  TrendingUp, Clock, BarChart3, Activity, Star
+  TrendingUp, Clock, BarChart3, Star
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -79,13 +79,6 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground mt-1">Your intelligent brand & marketing platform at a glance.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href="/analytics"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          >
-            <Activity className="w-4 h-4" />
-            Analytics
-          </Link>
           <Link
             href="/brands/new"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
@@ -196,7 +189,7 @@ export default function Dashboard() {
             {[
               { href: "/assets", icon: FileText, label: "Asset Library", color: "text-cyan-500", bg: "bg-cyan-50 dark:bg-cyan-950" },
               { href: "/templates", icon: TrendingUp, label: "Templates", color: "text-violet-500", bg: "bg-violet-50 dark:bg-violet-950" },
-              { href: "/analytics", icon: BarChart3, label: "Analytics", color: "text-amber-500", bg: "bg-amber-50 dark:bg-amber-950" },
+              { href: "/calendar", icon: BarChart3, label: "Content Calendar", color: "text-amber-500", bg: "bg-amber-50 dark:bg-amber-950" },
             ].map((qa) => {
               const Icon = qa.icon;
               return (

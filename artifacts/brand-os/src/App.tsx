@@ -20,12 +20,10 @@ const BrandDesignStudio = lazy(() => import("@/pages/BrandDesignStudio"));
 const BrandBook = lazy(() => import("@/pages/BrandBook"));
 const CampaignList = lazy(() => import("@/pages/CampaignList"));
 const CampaignWorkspace = lazy(() => import("@/pages/CampaignWorkspace"));
-const Analytics = lazy(() => import("@/pages/Analytics"));
 const ContentCalendar = lazy(() => import("@/pages/ContentCalendar"));
 const Assets = lazy(() => import("@/pages/Assets"));
 const Templates = lazy(() => import("@/pages/Templates"));
 const Admin = lazy(() => import("@/pages/Admin"));
-const SocialAccounts = lazy(() => import("@/pages/SocialAccounts"));
 const NodesEditor = lazy(() => import("@/pages/NodesEditor"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
@@ -92,11 +90,9 @@ function ProtectedAppShell() {
               <Switch>
                 <Route path="/brands/new" component={BrandWizard} />
                 <Route path="/brands/:id/edit" component={BrandEdit} />
-                <Route path="/brands/:brandId/social-accounts" component={SocialAccounts} />
                 <Route path="/brands/:id/campaigns" component={CampaignList} />
                 <Route path="/brands/:id" component={BrandKit} />
                 <Route path="/campaigns/:id" component={CampaignWorkspace} />
-                <Route path="/analytics" component={Analytics} />
                 <Route path="/calendar" component={ContentCalendar} />
                 <Route path="/assets" component={Assets} />
                 <Route path="/templates" component={Templates} />

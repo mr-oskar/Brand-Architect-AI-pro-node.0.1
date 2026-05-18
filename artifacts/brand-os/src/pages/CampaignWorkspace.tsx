@@ -9,12 +9,11 @@ import {
   ArrowLeft, Calendar, Edit3, Check, X, RefreshCw, Loader2, Hash, Image as ImageIcon,
   Megaphone, Sparkles, Wand2, Copy, CheckCircle2, Download, FileText,
   Mail, Newspaper, ChevronDown, TestTube2, Instagram, Linkedin, Twitter, Facebook,
-  ZoomIn, BarChart2, Target, Settings2, Zap, Send, Clock, Share2, Eye, Images,
+  ZoomIn, BarChart2, Target, Settings2, Zap, Clock, Eye, Images,
   Upload, History, Trash2, Plus,
 } from "lucide-react";
 import type { SocialPost } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
-import { ScheduleCampaignDialog } from "@/components/ScheduleCampaignDialog";
 import { extractApiError, notifyError } from "@/lib/apiError";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -1396,7 +1395,6 @@ export default function CampaignWorkspace() {
 
   const updatePost = useUpdatePost();
   const regeneratePost = useRegeneratePost();
-  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [publishingPostId, setPublishingPostId] = useState<number | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ generated: number; total: number } | null>(null);
@@ -1541,13 +1539,6 @@ export default function CampaignWorkspace() {
 
   return (
     <>
-    <ScheduleCampaignDialog
-      campaignId={campaignId}
-      postCount={campaign.posts?.length ?? 0}
-      open={showScheduleDialog}
-      onClose={() => setShowScheduleDialog(false)}
-      onScheduled={() => queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) })}
-    />
     <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-6xl mx-auto space-y-6 sm:space-y-8">
       {/* Header */}
       <div className="space-y-4">
@@ -1585,13 +1576,6 @@ export default function CampaignWorkspace() {
         {/* Action toolbar */}
         <div className="flex items-center gap-2 flex-wrap pl-8">
           <button
-            onClick={() => setShowScheduleDialog(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-sm"
-          >
-            <Send className="w-3.5 h-3.5" />
-            Schedule Campaign
-          </button>
-          <button
             onClick={handleBulkGenerateImages}
             disabled={bulkGenerating}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-primary/40 bg-primary/5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-60"
@@ -1608,13 +1592,6 @@ export default function CampaignWorkspace() {
             </span>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <Link href={`/brands/${campaign.brandId}/social-accounts`}>
-              <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors">
-                <Share2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Social Accounts</span>
-                <span className="sm:hidden">Accounts</span>
-              </button>
-            </Link>
             <button
               onClick={exportCampaignCSV}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-card text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
