@@ -1,633 +1,799 @@
-# 📘 Brand Architect AI Pro — التوثيق الكامل
+# Brand Architect AI Pro — التوثيق الكامل
 
-> منصة احترافية مدعومة بالذكاء الاصطناعي لبناء الهويات التجارية، توليد المحتوى، تصميم البوستات، إدارة الحملات التسويقية، والنشر التلقائي على وسائل التواصل الاجتماعي.
+> **الإصدار الحالي:** v2.0 — Python/FastAPI Backend  
+> **آخر تحديث:** 2026-05-18  
+> **الحالة:** ✅ النظام يعمل بالكامل على Replit
 
 ---
 
-## 📑 الفهرس
+## الفهرس
 
 1. [نظرة عامة](#1-نظرة-عامة)
-2. [الميزات الرئيسية](#2-الميزات-الرئيسية)
-3. [التقنيات المستخدمة (Tech Stack)](#3-التقنيات-المستخدمة-tech-stack)
-4. [هيكلية المشروع](#4-هيكلية-المشروع)
-5. [قاعدة البيانات (Schema)](#5-قاعدة-البيانات-schema)
-6. [الواجهة الأمامية — صفحات وميزات](#6-الواجهة-الأمامية--صفحات-وميزات)
-7. [الواجهة الخلفية — REST API](#7-الواجهة-الخلفية--rest-api)
-8. [الذكاء الاصطناعي (AI Pipeline)](#8-الذكاء-الاصطناعي-ai-pipeline)
-9. [الأمان (Security)](#9-الأمان-security)
-10. [التشغيل المحلي على Replit](#10-التشغيل-المحلي-على-replit)
-11. [التشغيل والنشر خارج Replit](#11-التشغيل-والنشر-خارج-replit)
-12. [متغيرات البيئة (Environment Variables)](#12-متغيرات-البيئة-environment-variables)
-13. [العمليات الإدارية الشائعة](#13-العمليات-الإدارية-الشائعة)
+2. [المكدس التقني الحالي](#2-المكدس-التقني-الحالي)
+3. [هيكل المشروع](#3-هيكل-المشروع)
+4. [قاعدة البيانات](#4-قاعدة-البيانات)
+5. [الـ API — مرجع كامل](#5-الـ-api--مرجع-كامل)
+6. [خدمات الذكاء الاصطناعي](#6-خدمات-الذكاء-الاصطناعي)
+7. [نظام الرصيد (Credits)](#7-نظام-الرصيد-credits)
+8. [الواجهة الأمامية](#8-الواجهة-الأمامية)
+9. [المتغيرات البيئية](#9-المتغيرات-البيئية)
+10. [التشغيل على Replit](#10-التشغيل-على-replit)
+11. [إضافة ميزة جديدة](#11-إضافة-ميزة-جديدة)
+12. [الميزات المُنجزة مقابل المخطط لها](#12-الميزات-المُنجزة-مقابل-المخطط-لها)
+13. [خارطة الطريق التطويرية](#13-خارطة-الطريق-التطويرية)
 14. [استكشاف الأعطال](#14-استكشاف-الأعطال)
-15. [خارطة الطريق المستقبلية](#15-خارطة-الطريق-المستقبلية)
 
 ---
 
 ## 1) نظرة عامة
 
-**Brand Architect AI Pro** عبارة عن SaaS متكامل يخدم رواد الأعمال، الشركات الناشئة، ومحترفي التسويق. يعتمد على نموذجين رئيسيين من الذكاء الاصطناعي:
+**Brand Architect AI Pro** منصة SaaS متكاملة لبناء الهويات التجارية وإدارة الحملات التسويقية بالذكاء الاصطناعي.
 
-- **OpenAI** (GPT-4o + GPT-Image-1) — للنصوص والصور.
-- **Google Gemini** (Gemini 2.5 Flash + Imagen) — كبديل أو fallback.
+### ما يمكن للمنصة فعله الآن
 
-يعمل المشروع كنظام **monorepo** مكوّن من خدمتين منفصلتين تتشاركان مكتبات مشتركة، ويُدار عبر `pnpm workspaces`.
-
-**الفائدة العملية للمستخدم:**
-
-| المشكلة التقليدية | الحل في المنصة |
+| الميزة | الحالة |
 |---|---|
-| إنشاء هوية تجارية يستغرق أسابيع وتكاليف | معالج هوية ذكي خلال دقائق |
-| تصميم بوستات يحتاج مصمم محترف | استوديو تصميم Canvas ذكي مدعوم بالـ AI |
-| إدارة محتوى متعدد المنصات | تقويم محتوى موحّد مع جدولة آلية |
-| تكلفة أدوات التسويق المنفصلة | منصة واحدة تستبدل 5-7 أدوات |
+| إنشاء حساب وتسجيل دخول (JWT) | ✅ يعمل |
+| معالج بناء الهوية التجارية | ✅ يعمل |
+| توليد Brand Kit بالذكاء الاصطناعي | ✅ يعمل |
+| توليد حملات تسويقية متعددة الأيام | ✅ يعمل |
+| توليد صور بوستات بالذكاء الاصطناعي | ✅ يعمل |
+| إعادة توليد النصوص وتوليد النسخ البديلة | ✅ يعمل |
+| لوحة التحكم (إحصائيات، رصيد، علامات حديثة) | ✅ يعمل |
+| محرر النودز البصري (`/nodes`) | ✅ يعمل (frontend) |
+| نظام الرصيد والتحكم بالاستخدام | ✅ يعمل |
 
 ---
 
-## 2) الميزات الرئيسية
+## 2) المكدس التقني الحالي
 
-### 🎨 2.1 منشئ الهوية التجارية الذكي (Brand Wizard)
-- معالج تفاعلي متعدد الخطوات لتجميع مدخلات المستخدم: اسم العلامة، الجمهور، نبرة الصوت، الصناعة، اللغة.
-- توليد فوري لـ:
-  - شعار احترافي (Logo) مع متغيرات لونية وأبعاد.
-  - لوحة ألوان (Color Palette) متناسقة.
-  - نظام طباعة (Typography) مع زوج خطوط رئيسي وثانوي.
-  - نبرة صوت (Brand Voice) بصياغة قابلة للتطبيق.
-  - قصة العلامة (Brand Story).
-
-### 📐 2.2 استوديو التصميم (Brand Design Studio)
-- محرر بصري شامل يعتمد على **Fabric.js v7** لتحرير العناصر بحرية.
-- توليد تخطيطات (Layouts) ذكية تُطبَّق هوية العلامة تلقائياً.
-- توليد صور خلفية مدمجة في التصميم عبر AI.
-- إضافة شعار العلامة تلقائياً (`ensureLogo`) في كل تصميم جديد.
-- إنشاء صفحات متعددة في وثيقة واحدة (`new-page` endpoint).
-- تحرير ذكي بالـ AI (`ai-edit`): تعديل عنصر محدد بأمر نصي.
-- تحليل صورة مرفوعة (`analyze-image`) واستخلاص الأنماط منها.
-- التوليد الذكي الشامل (`smart-generate`): توليد مجموعة كاملة من التصاميم من فكرة واحدة.
-
-### 📚 2.3 Brand Book (دليل الهوية)
-- توليد دليل هوية كامل (PDF + عرض داخل المنصة) يحوي:
-  - الشعار وقواعد استخدامه.
-  - نظام الألوان مع أكواد HEX/RGB.
-  - الطباعة وهرم الخطوط.
-  - نبرة الصوت والكلمات المفتاحية.
-  - أمثلة تطبيقية.
-- التصدير عبر `jsPDF` على جانب العميل.
-
-### 📣 2.4 ورشة الحملات التسويقية (Campaign Workspace)
-- توليد حملة كاملة من فكرة واحدة:
-  - استراتيجية الحملة وأهدافها.
-  - منشورات لكل منصة (Instagram, X, LinkedIn, Facebook, TikTok).
-  - صور احترافية مخصصة لكل منشور.
-  - hashtags مقترحة.
-- التوليد الفوري (Sync) أو غير المتزامن (`generate-campaign-async` + Job Store + Polling) للحملات الكبيرة.
-- توليد جميع الصور بضغطة واحدة (`generate-all-images`).
-- إعادة توليد منشور كامل أو متغير منه (variant).
-
-### 🗓️ 2.5 تقويم المحتوى (Content Calendar)
-- عرض جميع المنشورات على تقويم بصري.
-- جدولة المنشورات على المنصات المرتبطة.
-- إعادة جدولة (Reschedule) أو إلغاء (Unschedule).
-
-### 🚀 2.6 النشر على وسائل التواصل (Social Publishing)
-- ربط حسابات: Instagram, Facebook, X (Twitter), LinkedIn, TikTok.
-- نشر فوري أو مجدول عبر **Scheduler** يعمل في الخلفية.
-- منشور `/posts/:id/publish` ومنشور `/campaigns/:id/schedule` للجدولة الجماعية.
-
-### 📊 2.7 لوحة التحليلات (Analytics)
-- ملخص أداء العلامة: عدد المنشورات، الحملات، الاستهلاك.
-- مقاييس الاستخدام (Usage Events) بالتجزئة.
-- جدول الأحداث الزمنية لكل علامة.
-
-### 📦 2.8 مكتبة الأصول والقوالب (Assets & Templates)
-- تخزين جميع الأصول المُولَّدة (صور، تصاميم، ملفات).
-- مكتبة قوالب جاهزة للاستخدام السريع.
-
-### 🛡️ 2.9 لوحة تحكم Admin متكاملة
-- **المستخدمون**: إدارة، تعليق، تعديل صلاحيات.
-- **العلامات والحملات والمنشورات**: عرض وحذف على مستوى المنصة.
-- **الخطط (Plans)**: إنشاء وتعديل خطط الاشتراك.
-- **الاشتراكات (Subscriptions)**: ربط مستخدمين بخطط.
-- **الصفحات (Pages)**: إدارة محتوى الصفحات الثابتة (Landing, Terms, Privacy).
-- **مفاتيح API (API Keys)**: إنشاء وإلغاء.
-- **Webhooks**: تسجيل ويب هوكس خارجية.
-- **سجلات التدقيق (Audit Logs)**: تسجيل كل إجراء حساس.
-- **المراقبة (Monitoring)**: حالة النظام، الـ workflows، الذاكرة.
-- **الاستخدام (Usage)**: قياس استهلاك كل مستخدم لـ AI.
-- **الإعدادات العامة (Settings)**: تعديل سلوك المنصة من الواجهة.
-
-### 🔐 2.10 المصادقة (Authentication)
-- نظامان مدعومان جنباً إلى جنب:
-  - **Clerk** (موصى به للإنتاج) — مع SSO، MFA، Social Login.
-  - **JWT/Session مدمج** (للتطوير والاستضافة الذاتية).
-- Middleware ذكي (`requireAuth`, `requireAdmin`) يقرر تلقائياً أيهما يعمل.
-
-### 🌐 2.11 دعم اللغة العربية الكامل
-- واجهة RTL مدمجة.
-- توليد محتوى بالعربية والإنجليزية.
-- إشعارات الأخطاء بالإنجليزية فقط (تفضيل المستخدم).
-
----
-
-## 3) التقنيات المستخدمة (Tech Stack)
-
-| الطبقة | التقنية | الإصدار |
-|---|---|---|
-| Runtime | Node.js | 24 |
-| اللغة | TypeScript | 5.9 |
-| إدارة المونوريبو | pnpm Workspaces | 10.26+ |
-| **Backend** | Express | 5 |
-| **ORM** | Drizzle | 0.45 |
-| قاعدة البيانات | PostgreSQL | 14+ |
-| المصادقة | Clerk Express + JWT | 2.1 / 9.0 |
-| تشفير كلمات المرور | bcryptjs | 3.0 |
-| Validation | Zod | 3.25 |
-| معالجة الصور | Sharp | 0.34 |
-| تخزين الكائنات | Google Cloud Storage / Local FS | 7.19 |
-| الأمان | Helmet + CORS + HPP + express-rate-limit | — |
-| Logging | Pino + pino-http | 9 |
-| **Frontend** | React | 19.1 |
-| البندلر | Vite | 7.3 |
-| التوجيه | wouter | 3.3 |
-| إدارة الحالة | TanStack Query | 5.90 |
-| Styling | TailwindCSS v4 + shadcn (Radix) | 4.1 |
-| الأنيميشن | Framer Motion | 12 |
-| محرر Canvas | Fabric.js | 7.2 |
-| توليد PDF | jsPDF | 4.2 |
-| الأيقونات | lucide-react | 0.545 |
-| **AI** | OpenAI Integration + Gemini Integration | 2.0 |
-
----
-
-## 4) هيكلية المشروع
+### البنية الكاملة
 
 ```
-workspace/
-├── artifacts/                          ← الخدمات القابلة للنشر
-│   ├── api-server/                     ← خادم Express
-│   │   ├── src/
-│   │   │   ├── app.ts                  ← تهيئة Express + Middleware
-│   │   │   ├── index.ts                ← Entry point
-│   │   │   ├── routes/                 ← جميع الـ REST endpoints
-│   │   │   │   ├── auth.ts             ← تسجيل/دخول/ملف شخصي
-│   │   │   │   ├── brands.ts           ← العلامات والتوليد
-│   │   │   │   ├── designs.ts          ← استوديو التصميم
-│   │   │   │   ├── campaigns.ts        ← الحملات
-│   │   │   │   ├── posts.ts            ← المنشورات
-│   │   │   │   ├── social.ts           ← الحسابات + الجدولة
-│   │   │   │   ├── images.ts           ← خدمة الصور
-│   │   │   │   ├── jobs.ts             ← المهام غير المتزامنة
-│   │   │   │   ├── dashboard.ts        ← ملخص لوحة التحكم
-│   │   │   │   ├── admin.ts            ← الإدارة الأساسية
-│   │   │   │   ├── admin-platform.ts   ← إدارة المنصة (Plans/Pages/...)
-│   │   │   │   └── health.ts           ← Health check
-│   │   │   ├── middlewares/
-│   │   │   │   ├── requireAuth.ts      ← فرض تسجيل الدخول
-│   │   │   │   ├── requireAdmin.ts     ← فرض صلاحية المسؤول
-│   │   │   │   ├── usageTracker.ts     ← قياس الاستهلاك
-│   │   │   │   └── clerkProxyMiddleware.ts
-│   │   │   └── lib/                    ← المكتبات الداخلية
-│   │   │       ├── ai.ts               ← أوركستراتور الـ AI
-│   │   │       ├── auth.ts             ← منطق المصادقة
-│   │   │       ├── credits.ts          ← نظام الحدود/الاعتمادات
-│   │   │       ├── jobStore.ts         ← مهام Async في الذاكرة
-│   │   │       ├── scheduler.ts        ← جدولة النشر التلقائي
-│   │   │       ├── publisher.ts        ← النشر على المنصات
-│   │   │       ├── objectStorage.ts    ← تخزين الكائنات
-│   │   │       ├── imageStorage.ts     ← تخزين الصور
-│   │   │       ├── logoProcessor.ts    ← معالجة الشعارات
-│   │   │       ├── brandBook.ts        ← توليد دليل الهوية
-│   │   │       └── ...
-│   │   └── package.json
-│   │
-│   └── brand-os/                       ← التطبيق الأمامي
-│       ├── src/
-│       │   ├── App.tsx                 ← التوجيه الرئيسي + Toaster
-│       │   ├── pages/
-│       │   │   ├── LandingPage.tsx
-│       │   │   ├── SignIn.tsx / SignUp.tsx
-│       │   │   ├── Dashboard.tsx
-│       │   │   ├── BrandWizard.tsx     ← معالج الهوية
-│       │   │   ├── BrandKit.tsx        ← عرض الهوية الكامل
-│       │   │   ├── BrandEdit.tsx
-│       │   │   ├── BrandBook.tsx       ← دليل الهوية
-│       │   │   ├── BrandDesignStudio.tsx ← الاستوديو البصري
-│       │   │   ├── CampaignList.tsx
-│       │   │   ├── CampaignWorkspace.tsx
-│       │   │   ├── ContentCalendar.tsx
-│       │   │   ├── SocialAccounts.tsx
-│       │   │   ├── Analytics.tsx
-│       │   │   ├── Assets.tsx
-│       │   │   ├── Templates.tsx
-│       │   │   ├── Admin.tsx           ← لوحة الإدارة
-│       │   │   └── admin/              ← تابات الإدارة
-│       │   ├── components/
-│       │   │   └── ui/                 ← مكونات shadcn
-│       │   ├── contexts/
-│       │   │   ├── AuthContext.tsx
-│       │   │   └── SiteSettingsContext.tsx
-│       │   ├── hooks/
-│       │   └── lib/
-│       │       └── apiError.ts         ← extractApiError + notify*
-│       └── package.json
+Replit (pnpm monorepo)
 │
-├── lib/                                ← مكتبات مشتركة
-│   ├── api-client-react/               ← TanStack Query hooks
-│   ├── api-spec/                       ← OpenAPI Spec + توليد العميل
-│   ├── api-zod/                        ← Zod schemas مشتركة
-│   ├── db/                             ← Drizzle schemas + client
-│   │   └── src/schema/
-│   │       ├── users.ts
-│   │       ├── brands.ts
-│   │       ├── campaigns.ts
-│   │       ├── posts.ts
-│   │       ├── designs.ts
-│   │       ├── social-accounts.ts
-│   │       ├── platform.ts
-│   │       └── admin.ts
-│   └── integrations/
-│       └── integrations-openai-ai-server/
-│           └── src/
-│               ├── client.ts
-│               └── image/client.ts
+├── artifacts/api-server-python/   ← Backend الفعّال ✅
+│   └── Python 3.11 + FastAPI + Uvicorn (port 8080)
 │
-├── scripts/                            ← scripts cross-package
-├── attached_assets/                    ← أصول المستخدم المرفوعة
-├── DEPLOYMENT.md                       ← دليل النشر
-├── DOCUMENTATION.md                    ← (هذا الملف)
-├── AGENTS.md                           ← تعليمات الـ AI agents
-├── replit.md                           ← ملخص لـ Replit Agent
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
-└── package.json
+├── artifacts/brand-os/            ← Frontend ✅
+│   └── React 19 + Vite 7 + TypeScript (port 5000)
+│
+├── artifacts/api-server/          ← Backend القديم (TypeScript/Express) — متوقف ⛔
+│   └── موجود للمرجعية فقط — لا تشغّله
+│
+├── lib/db/                        ← Schema + Drizzle ORM
+├── lib/api-client-react/          ← React Query hooks مولّدة
+└── lib/integrations/              ← مكتبات AI مُجمَّعة
 ```
 
----
+### Backend — Python FastAPI
 
-## 5) قاعدة البيانات (Schema)
-
-كل الجداول في `lib/db/src/schema/`. الجداول الرئيسية:
-
-| الجدول | الموقع | الوصف |
-|---|---|---|
-| `users` | `users.ts` | الحسابات (Clerk ID + email + role) |
-| `brands` | `brands.ts` | العلامات التجارية (logo, colors, voice, story) |
-| `campaigns` | `campaigns.ts` | الحملات التسويقية |
-| `posts` | `posts.ts` | المنشورات الفردية (محتوى + صورة + جدولة) |
-| `designs` | `designs.ts` | تصاميم الاستوديو (Fabric JSON) |
-| `social_accounts` | `social-accounts.ts` | حسابات منصات التواصل المربوطة |
-| `pages` | `platform.ts` | محتوى الصفحات الثابتة |
-| `plans` | `platform.ts` | خطط الاشتراك |
-| `subscriptions` | `platform.ts` | اشتراكات المستخدمين |
-| `usage_events` | `platform.ts` | كل عملية AI تُسجَّل هنا |
-| `api_keys` | `platform.ts` | مفاتيح API للمستخدمين |
-| `webhooks` | `platform.ts` | Webhooks مسجلة |
-| `app_settings` | `admin.ts` | إعدادات المنصة العامة |
-| `audit_logs` | `admin.ts` | سجل كل إجراء حساس |
-
-**أوامر إدارة قاعدة البيانات:**
-
-```bash
-pnpm --filter @workspace/db run push        # دفع المخطط الحالي
-pnpm --filter @workspace/db run studio      # فتح Drizzle Studio
-pnpm --filter @workspace/db run generate    # توليد migration
-```
-
----
-
-## 6) الواجهة الأمامية — صفحات وميزات
-
-### المسارات العامة (Public)
-| المسار | الصفحة | الوصف |
-|---|---|---|
-| `/` | إعادة توجيه ذكية | يحوّل للوحة التحكم أو التسجيل |
-| `/sign-in` | `SignIn` | تسجيل دخول (Clerk أو نموذج محلي) |
-| `/sign-up` | `SignUp` | إنشاء حساب |
-
-### المسارات المحمية (Protected — تتطلب تسجيل دخول)
-| المسار | الصفحة | الوصف |
-|---|---|---|
-| `/dashboard` | `Dashboard` | ملخص النشاط، علاماتك، حملاتك |
-| `/brands/new` | `BrandWizard` | معالج إنشاء هوية جديدة |
-| `/brands/:id` | `BrandKit` | عرض الهوية كاملة |
-| `/brands/:id/edit` | `BrandEdit` | تحرير بيانات الهوية |
-| `/brands/:id/book` | `BrandBook` | دليل الهوية (PDF) |
-| `/brands/:id/design` | `BrandDesignStudio` | الاستوديو البصري |
-| `/brands/:id/campaigns` | `CampaignList` | قائمة حملات العلامة |
-| `/brands/:brandId/social-accounts` | `SocialAccounts` | الحسابات المربوطة |
-| `/campaigns/:id` | `CampaignWorkspace` | تفاصيل الحملة + المنشورات |
-| `/calendar` | `ContentCalendar` | تقويم المحتوى |
-| `/analytics` | `Analytics` | التحليلات |
-| `/assets` | `Assets` | مكتبة الأصول |
-| `/templates` | `Templates` | القوالب الجاهزة |
-
-### المسارات الإدارية
-| المسار | الصفحة | الصلاحية |
-|---|---|---|
-| `/admin` | `Admin` (تابات متعددة) | Admin فقط |
-
-تحوي تابات Admin على: `Users`, `Brands`, `Plans`, `Subscriptions`, `Usage`, `Events`, `ApiKeys`, `Webhooks`, `Pages`, `Workflows`, `Monitoring`.
-
----
-
-## 7) الواجهة الخلفية — REST API
-
-كل المسارات مسبوقة بـ `/api`. الـ endpoints الرئيسية:
-
-### 🔐 `/api/auth/*`
-- `POST /auth/register` — إنشاء حساب
-- `POST /auth/login` — تسجيل دخول (Rate limited)
-- `POST /auth/logout` — خروج
-- `GET  /auth/me` — معلومات المستخدم الحالي
-
-### 🏷️ `/api/brands/*`
-- `GET    /brands` — جلب علاماتي
-- `POST   /brands` — إنشاء علامة
-- `GET    /brands/:id` — تفاصيل
-- `PATCH  /brands/:id` — تحديث
-- `DELETE /brands/:id` — حذف
-- `POST   /brands/:id/generate-kit` — توليد الهوية الكاملة (AI)
-- `POST   /brands/:id/generate-logo-variants` — متغيرات الشعار
-- `POST   /brands/:id/generate-story` — قصة العلامة
-- `POST   /brands/:id/generate-content` — محتوى عام للعلامة
-- `POST   /brands/:id/generate-campaign` — توليد حملة (sync)
-- `POST   /brands/:id/generate-campaign-async` — توليد حملة (async + Job)
-- `GET    /brands/:id/campaigns` — حملات العلامة
-- `GET    /brands/:id/stats` — إحصائيات
-
-### 🎨 `/api/designs/*`
-- `GET/POST/PATCH/DELETE /designs[/:id]` — CRUD التصاميم
-- `POST /designs/:id/preview` — توليد معاينة
-- `POST /designs/generate-image` — توليد صورة فردية
-- `POST /designs/generate-layout` — توليد تخطيط
-- `POST /designs/smart-generate` — توليد ذكي شامل
-- `POST /designs/analyze-image` — تحليل صورة
-- `POST /designs/ai-edit` — تحرير ذكي
-- `POST /designs/new-page` — صفحة جديدة في تصميم
-- `POST /designs/generate-brand-book` — توليد دليل الهوية
-
-### 📣 `/api/campaigns/*`
-- `GET  /campaigns/:id` — تفاصيل
-- `POST /campaigns/:id/generate-all-images` — توليد كل صور الحملة
-
-### 📝 `/api/posts/*`
-- `GET   /posts/:id` — تفاصيل
-- `PATCH /posts/:id` — تعديل
-- `POST  /posts/:id/generate-image` — توليد صورة
-- `POST  /posts/:id/restore-image` — استعادة الصورة الأصلية
-- `POST  /posts/:id/regenerate` — إعادة توليد كاملة
-- `POST  /posts/:id/generate-variant` — متغير
-- `POST  /posts/:id/generate-content` — توليد نص فقط
-
-### 📲 `/api/social/*`
-- `GET    /brands/:brandId/social-accounts` — الحسابات المربوطة
-- `POST   /brands/:brandId/social-accounts` — ربط حساب
-- `DELETE /social-accounts/:id` — فصل حساب
-- `POST   /campaigns/:id/schedule` — جدولة كل منشورات الحملة
-- `POST   /posts/:id/publish` — نشر فوري
-- `POST   /posts/:id/unschedule` — إلغاء الجدولة
-- `GET    /campaigns/:id/schedule` — استعلام الجدولة
-- `POST   /scheduler/run` — تشغيل المجدول يدوياً (Admin)
-
-### ⚙️ `/api/admin/*` و `/api/admin/...`
-- إدارة كاملة (راجع الميزة 2.9 أعلاه).
-
-### 📦 `/api/jobs/*`
-- `GET /jobs/:id` — حالة Job غير متزامن.
-
-### ❤️ `/api/healthz`
-- فحص حالة الخادم.
-
-### 🖼️ `/api/storage/images/objects/uploads/:id`
-- خدمة صور المستخدم المُخزَّنة.
-
----
-
-## 8) الذكاء الاصطناعي (AI Pipeline)
-
-### 8.1 الموردون (Providers)
-| المزود | الاستخدام | المتغير |
-|---|---|---|
-| **OpenAI** (GPT-4o, GPT-Image-1) | نصوص + صور | `OPENAI_API_KEY` |
-| **Google Gemini** (2.5 Flash, Imagen) | نصوص + صور (Fallback) | `GEMINI_API_KEY` |
-
-### 8.2 آلية الأولوية
-1. إذا وُجد مفتاح OpenAI الخاص بالمستخدم → يُستخدم.
-2. وإلا، إذا وُجد Replit OpenAI Integration → يُستخدم (`AI_INTEGRATIONS_OPENAI_*`).
-3. وإلا، إذا وُجد Gemini → يُستخدم.
-4. خلاف ذلك، يُرجَع خطأ واضح للمستخدم.
-
-### 8.3 التوليد غير المتزامن (Async Jobs)
-عمليات التوليد الكبيرة (حملات بأكثر من 5 منشورات) تستخدم:
-- `generate-campaign-async` يُنشئ Job ID فوراً.
-- الواجهة تستعلم عن `/jobs/:id` بشكل دوري.
-- النتيجة تُحفظ في `jobStore` (in-memory) ثم تُنقَل لـ DB عند الاكتمال.
-
-### 8.4 معالجة الأخطاء الموحدة
-كل استدعاء AI من الواجهة يمر عبر:
-- `extractApiError(error)` — يستخرج رسالة دقيقة من response.
-- `notifyError(...)` / `notifySuccess(...)` — إشعارات Toast بالإنجليزية.
-- موجود في `artifacts/brand-os/src/lib/apiError.ts` ومستخدَم في كل صفحات التوليد.
-
-### 8.5 معالجة الصور
-- **Sharp** للضغط، تغيير الحجم، تحويل الصيغ.
-- **logoProcessor.ts** ينظف خلفيات الشعارات تلقائياً.
-- **ensureLogo** يحقن شعار العلامة في كل تصميم جديد.
-
----
-
-## 9) الأمان (Security)
-
-### 9.1 Middlewares المطبَّقة (مرتبة)
-1. **`trust proxy`** — للتعامل الصحيح مع Replit/Cloudflare proxies.
-2. **Helmet** — رؤوس HTTP أمنية (CSP، XSS، Clickjacking).
-3. **CORS** — قائمة بيضاء عبر `REPLIT_DOMAINS`.
-4. **Compression** — gzip للاستجابات.
-5. **cookie-parser** — قراءة الكوكيز.
-6. **express.json** — حد أقصى `10mb`.
-7. **express.urlencoded** — `10mb`.
-8. **HPP** — حماية ضد HTTP Parameter Pollution.
-9. **Clerk Middleware** — يستخرج جلسة Clerk إن وُجدت.
-10. **`usageTracker`** — يسجل كل طلب `/api`.
-11. **Rate Limiting**:
-    - عام: `generalLimiter` على كل `/api`.
-    - Auth: `authLimiter` على `/auth/login` و `/auth/register` و `__clerk`.
-    - AI: `aiLimiter` على كل endpoints التوليد (للحماية من الإفراط).
-12. **`requireAuth`** على كل العمليات الحساسة.
-13. **`requireAdmin`** على عمليات الإدارة.
-
-### 9.2 إدارة الأسرار
-- لا توجد أسرار في الكود مطلقاً — كلها متغيرات بيئة.
-- `.gitignore` يستثني `.env` وملفات الأسرار.
-- المخزن السري (Replit Secrets) يحوي حالياً:
-  - `GEMINI_API_KEY` ✓
-  - `GITHUB_PERSONAL_ACCESS_TOKEN` ✓
-  - `DATABASE_URL`، `SESSION_SECRET`، `AUTH_JWT_SECRET` (مدارة من Replit)
-  - `OPENAI_API_KEY` (اختياري — يطلبه النظام عند الحاجة)
-
-### 9.3 GitHub Secret Scanning
-- المستودع البعيد لديه **Push Protection** مفعّل.
-- أي commit يحوي token حقيقي سيُرفض تلقائياً قبل الرفع.
-
-### 9.4 كلمات المرور
-- مُجزَّأة بـ **bcryptjs** (10 rounds).
-- لا تُخزَّن أبداً بصيغة plaintext.
-
-### 9.5 JWT
-- التوقيع بـ `AUTH_JWT_SECRET` (32 بايت hex).
-- صلاحية محددة + refresh عبر cookies HTTP-Only.
-
-### 9.6 Validation
-- **Zod** لكل body, query, params.
-- `validateBody`, `validateParams`, `validateQuery` helpers.
-
-### 9.7 Audit Logging
-- كل عملية إدارية حساسة تُسجَّل في `audit_logs`.
-
----
-
-## 10) التشغيل المحلي على Replit
-
-### 10.1 Workflows المُعدَّة
-| الاسم | الأمر | المنفذ |
-|---|---|---|
-| `API Server` | `PORT=8080 pnpm --filter @workspace/api-server run dev` | 8080 |
-| `Start application` | `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` | 5173 |
-| `artifacts/api-server: API Server` | `pnpm --filter @workspace/api-server run dev` | 8080 |
-| `artifacts/brand-os: web` | `pnpm --filter @workspace/brand-os run dev` | (Vite default) |
-
-> ملاحظة: لا تُشغِّل `API Server` و `artifacts/api-server: API Server` معاً (نفس المنفذ → `EADDRINUSE`).
-
-### 10.2 الخطوات الأولى
-1. `pnpm install` — تثبيت كل التبعيات.
-2. تشغيل workflow `API Server`.
-3. تشغيل workflow `Start application`.
-4. افتح Webview Replit → ستفتح الواجهة على `:5173`.
-5. سجّل حساب جديد أو ادخل بحساب admin (إن وُجد).
-
-### 10.3 إعدادات الجدولة
-- **Vite** مُعدّ بـ `server.allowedHosts: true` ليعمل عبر iframe بروكسي Replit.
-- الـ API يستخدم `trust proxy: 1`.
-
----
-
-## 11) التشغيل والنشر خارج Replit
-
-راجع `DEPLOYMENT.md` للتفاصيل الكاملة. ملخص سريع:
-
-### 11.1 وضع الحاوية الواحدة (Single-container)
-```bash
-SERVE_FRONTEND=1 NODE_ENV=production pnpm run build && node artifacts/api-server/dist/index.mjs
-```
-الـ API يخدم الـ SPA المبنية أيضاً على نفس المنفذ.
-
-### 11.2 Docker Compose
-ملف جاهز موثق في `DEPLOYMENT.md` (PostgreSQL + API + nginx).
-
-### 11.3 منصات أخرى مدعومة
-- Render, Railway, Fly.io, AWS, Azure, GCP, VPS عادي.
-- يكفي تحديد `DATABASE_URL` + المتغيرات الأخرى.
-
----
-
-## 12) متغيرات البيئة (Environment Variables)
-
-### إلزامية في الإنتاج
-| المتغير | الوصف |
+| المكوّن | التقنية |
 |---|---|
-| `DATABASE_URL` | Connection string لـ Postgres |
-| `SESSION_SECRET` | توقيع كوكيز الجلسة (`openssl rand -hex 32`) |
-| `AUTH_JWT_SECRET` | توقيع الـ JWT |
-| `OPENAI_API_KEY` **أو** `GEMINI_API_KEY` | على الأقل واحد |
+| Framework | FastAPI 0.115 |
+| Server | Uvicorn 0.32 (مع uvloop) |
+| ORM | SQLAlchemy 2.0 |
+| قاعدة البيانات | PostgreSQL (Replit Native) |
+| Auth | JWT (python-jose) + bcrypt (passlib) |
+| Validation | Pydantic v2 |
+| AI — نصوص | OpenAI GPT-4o / Gemini (عبر Replit AI Integrations) |
+| AI — صور | OpenAI gpt-image-1 / Google Gemini |
 
-### اختيارية
-| المتغير | الافتراضي | الوصف |
-|---|---|---|
-| `PORT` | `8080` | منفذ الـ API |
-| `NODE_ENV` | `development` | في الإنتاج: `production` |
-| `SERVE_FRONTEND` | `0` | `1` لتشغيل وضع الحاوية الواحدة |
-| `BASE_PATH` | `/` | base path للـ frontend |
-| `CLERK_SECRET_KEY` | — | لتفعيل Clerk |
-| `CLERK_PUBLISHABLE_KEY` | — | لتفعيل Clerk |
-| `VITE_CLERK_PUBLISHABLE_KEY` | — | للواجهة |
-| `REPLIT_DOMAINS` | — | قائمة CORS بيضاء |
-| `PRIVATE_OBJECT_DIR` | محلي | مجلد التخزين أو bucket |
-| `PUBLIC_OBJECT_SEARCH_PATHS` | — | مجلدات الأصول العامة |
-| `AI_INTEGRATIONS_OPENAI_BASE_URL` | (auto) | لـ Replit Integration |
-| `AI_INTEGRATIONS_OPENAI_API_KEY` | (auto) | لـ Replit Integration |
+### Frontend — React Vite
 
-> ⚠️ **لا تُسجِّل أي مفتاح في Git مباشرة.** استخدم Replit Secrets أو `.env` المستثنى من Git.
+| المكوّن | التقنية |
+|---|---|
+| Framework | React 19 + Vite 7 |
+| Routing | Wouter 3 |
+| State / Data | TanStack Query v5 |
+| UI | Tailwind CSS 4 + Radix UI |
+| Animations | Framer Motion |
+| محرر النودز | @xyflow/react |
+| Canvas | Fabric.js |
 
 ---
 
-## 13) العمليات الإدارية الشائعة
+## 3) هيكل المشروع
+
+```
+artifacts/api-server-python/
+├── main.py                    ← نقطة الدخول (uvicorn main:app)
+└── app/
+    ├── config.py              ← الإعدادات من متغيرات البيئة (Pydantic Settings)
+    ├── database.py            ← SQLAlchemy engine + SessionLocal
+    ├── models.py              ← ORM models (مطابقة للـ DB الفعلية)
+    ├── schemas.py             ← Pydantic request/response schemas
+    ├── deps.py                ← FastAPI dependencies (auth, db)
+    ├── layers/
+    │   ├── auth.py            ← JWT + bcrypt (قابل للاستبدال)
+    │   ├── credits.py         ← نظام الرصيد (قابل للتعطيل: CREDITS_ENABLED=false)
+    │   └── payments.py        ← Stripe stub (موثّق، غير منفّذ)
+    ├── routes/
+    │   ├── auth.py            ← /api/auth/*
+    │   ├── brands.py          ← /api/brands/*
+    │   ├── campaigns.py       ← /api/campaigns/*
+    │   ├── posts.py           ← /api/posts/*
+    │   ├── dashboard.py       ← /api/dashboard/*
+    │   └── system.py          ← /api/health, /api/jobs/*, /api/public-settings
+    └── services/
+        ├── ai/
+        │   ├── client.py      ← محدِّد مزوّد الـ AI (OpenAI / Gemini / Replit Proxy)
+        │   ├── brand_kit.py   ← توليد Brand Kit
+        │   ├── campaign.py    ← توليد الحملات
+        │   ├── post.py        ← إعادة التوليد + النسخ البديلة
+        │   └── image.py       ← توليد الصور (مع الشعارات والمراجع)
+        ├── image_storage.py   ← تخزين الصور المولّدة (ملفات محلية)
+        └── job_store.py       ← تتبع المهام الخلفية (in-memory)
+
+artifacts/brand-os/src/
+├── pages/
+│   ├── LandingPage.tsx        ← الصفحة الرئيسية
+│   ├── SignIn.tsx / SignUp.tsx
+│   ├── Dashboard.tsx          ← لوحة التحكم
+│   ├── BrandWizard.tsx        ← معالج إنشاء العلامة
+│   ├── BrandKit.tsx           ← تفاصيل العلامة + توليد الكيت
+│   ├── BrandEdit.tsx          ← تعديل العلامة
+│   ├── CampaignList.tsx       ← قائمة الحملات
+│   ├── CampaignBriefPage.tsx  ← توليد حملة جديدة
+│   ├── CampaignWorkspace.tsx  ← مساحة عمل الحملة
+│   └── nodes/                 ← محرر النودز البصري (/nodes)
+├── contexts/
+│   ├── AuthContext.tsx         ← إدارة حالة المستخدم
+│   └── SiteSettingsContext.tsx ← إعدادات الموقع
+└── lib/
+    ├── apiError.ts            ← extractApiError / notifyError / notifySuccess
+    └── queryClient.ts
+```
+
+---
+
+## 4) قاعدة البيانات
+
+### الجداول الفعّالة
+
+```sql
+users
+  id            UUID PK
+  email         TEXT UNIQUE NOT NULL
+  password_hash TEXT NOT NULL
+  name          TEXT
+  role          TEXT DEFAULT 'user'    -- 'user' | 'admin'
+  status        TEXT DEFAULT 'active'
+  credits       INTEGER DEFAULT 100
+  created_at    TIMESTAMPTZ
+  updated_at    TIMESTAMPTZ
+
+brands
+  id                  SERIAL PK
+  user_id             TEXT (UUID → users.id)
+  company_name        TEXT NOT NULL
+  company_description TEXT                    -- ⚠ ليس 'description'
+  industry            TEXT
+  website_url         TEXT                    -- ⚠ ليس 'website'
+  logo_url            TEXT
+  logo_variants       JSONB
+  status              TEXT DEFAULT 'active'
+  brand_kit           JSONB                   -- Brand Kit المولّد بالـ AI
+  created_at          TIMESTAMPTZ
+  updated_at          TIMESTAMPTZ
+
+campaigns
+  id              SERIAL PK
+  brand_id        INTEGER → brands.id
+  title           TEXT
+  strategy        TEXT
+  start_date      DATE
+  end_date        DATE
+  days            JSONB                       -- مصفوفة أيام الحملة
+  status          TEXT DEFAULT 'draft'
+  created_at      TIMESTAMPTZ
+  updated_at      TIMESTAMPTZ
+
+posts
+  id              SERIAL PK
+  campaign_id     INTEGER → campaigns.id
+  day             INTEGER
+  caption         TEXT
+  hook            TEXT
+  cta             TEXT
+  hashtags        TEXT[]
+  image_prompt    TEXT
+  image_url       TEXT
+  image_history   JSONB                       -- سجل الصور السابقة
+  platform        TEXT DEFAULT 'instagram'
+  scheduled_at    TIMESTAMPTZ
+  published_at    TIMESTAMPTZ
+  publish_status  TEXT DEFAULT 'draft'        -- 'draft' | 'scheduled' | 'published'
+  created_at      TIMESTAMPTZ
+  updated_at      TIMESTAMPTZ
+
+app_settings
+  key             TEXT PK                     -- 'site' | 'features' | 'maintenance' | 'creditCosts'
+  value           JSONB
+  updated_at      TIMESTAMPTZ
+
+-- جداول موجودة في DB لكن غير مفعّلة حالياً في Python backend:
+designs, social_accounts, api_keys, audit_logs, plans,
+subscriptions, usage_events, webhooks, pages
+```
+
+### تحديث الـ Schema
 
 ```bash
-# تثبيت التبعيات
-pnpm install
-
-# فحص الأنواع (typecheck الكامل)
-pnpm run typecheck
-
-# بناء كل المشروع
-pnpm run build
-
-# دفع مخطط DB
+# الأمر الوحيد لمزامنة DB مع الـ schema
 pnpm --filter @workspace/db run push
-
-# توليد migration
-pnpm --filter @workspace/db run generate
-
-# تشغيل API فقط
-pnpm --filter @workspace/api-server run dev
-
-# تشغيل Frontend فقط
-pnpm --filter @workspace/brand-os run dev
-
-# توليد عميل API من OpenAPI Spec
-pnpm --filter @workspace/api-spec run codegen
 ```
 
-### رفع التغييرات إلى GitHub
-- المستودع: `https://github.com/mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3.2`
-- التوكن مخزَّن في `~/.git-credentials` — لا حاجة لتمريره يدوياً.
-- اضغط **Commit** ثم **Push** من لوحة Git في Replit.
+---
+
+## 5) الـ API — مرجع كامل
+
+**Base URL:** `/api`  
+**Auth:** JWT في cookie `auth_token` + header `Authorization: Bearer <token>`  
+**Docs التفاعلية:** `/api/docs` (Swagger UI)
+
+---
+
+### 5.1 Auth — `/api/auth`
+
+| Method | Endpoint | Auth؟ | الوصف |
+|---|---|---|---|
+| `POST` | `/auth/register` | ❌ | تسجيل مستخدم جديد |
+| `POST` | `/auth/login` | ❌ | تسجيل الدخول |
+| `POST` | `/auth/logout` | ❌ | تسجيل الخروج (مسح الكوكي) |
+| `GET` | `/auth/me` | ✅ | بيانات المستخدم الحالي |
+
+**POST /auth/register**
+```json
+{ "email": "user@example.com", "password": "min8chars", "name": "أحمد" }
+→ 200: UserResponse | 409: Email already registered
+```
+
+**POST /auth/login**
+```json
+{ "email": "user@example.com", "password": "mypassword" }
+→ 200: UserResponse | 401: Invalid email or password
+```
+
+**UserResponse**
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "name": "أحمد",
+  "role": "user",
+  "credits": 500,
+  "created_at": "2026-01-01T00:00:00"
+}
+```
+
+> **ملاحظة:** أول مستخدم يُسجَّل يحصل تلقائياً على صلاحية `admin` ويُعفى من نظام الرصيد.
+
+---
+
+### 5.2 Brands — `/api/brands`
+
+| Method | Endpoint | Auth؟ | Credits | الوصف |
+|---|---|---|---|---|
+| `GET` | `/brands` | ✅ | — | قائمة العلامات (paginated) |
+| `POST` | `/brands` | ✅ | — | إنشاء علامة جديدة |
+| `GET` | `/brands/{id}` | ✅ | — | تفاصيل علامة |
+| `PATCH` | `/brands/{id}` | ✅ | — | تعديل علامة |
+| `DELETE` | `/brands/{id}` | ✅ | — | حذف علامة |
+| `POST` | `/brands/{id}/generate-kit` | ✅ | 50 | توليد Brand Kit بالـ AI |
+| `POST` | `/brands/{id}/generate-campaign` | ✅ | 60 | بدء توليد حملة (background job) |
+
+**GET /brands** — Query params: `page=1`, `page_size=20`
+
+**POST /brands**
+```json
+{
+  "company_name": "شركة النجاح",
+  "industry": "التقنية",
+  "description": "وصف الشركة",
+  "website": "https://example.com",
+  "logo_url": "https://..."
+}
+```
+
+**POST /brands/{id}/generate-kit**
+```json
+{ "brand_colors": ["#7c3aed", "#a78bfa"] }
+→ 200: BrandDetailResponse (مع brand_kit محدّث)
+```
+
+**POST /brands/{id}/generate-campaign**
+```json
+{
+  "days": 7,
+  "platforms": ["instagram", "twitter"],
+  "brief": "حملة إطلاق منتج",
+  "target_audience": "الشباب العربي 18-35",
+  "campaign_goal": "زيادة الوعي بالعلامة",
+  "reference_images": ["data:image/jpeg;base64,..."]
+}
+→ 202: { "jobId": "uuid" }  ← استخدم /api/jobs/{jobId} للمتابعة
+```
+
+---
+
+### 5.3 Campaigns — `/api/campaigns`
+
+| Method | Endpoint | Auth؟ | الوصف |
+|---|---|---|---|
+| `GET` | `/campaigns` | ✅ | قائمة الحملات (يدعم `brand_id=X`) |
+| `GET` | `/campaigns/{id}` | ✅ | تفاصيل الحملة + كل البوستات |
+| `DELETE` | `/campaigns/{id}` | ✅ | حذف الحملة والبوستات |
+
+---
+
+### 5.4 Posts — `/api/posts`
+
+| Method | Endpoint | Auth؟ | Credits | الوصف |
+|---|---|---|---|---|
+| `GET` | `/posts/{id}` | ✅ | — | تفاصيل بوست |
+| `PATCH` | `/posts/{id}` | ✅ | — | تعديل بوست (نص، صورة، منصة) |
+| `DELETE` | `/posts/{id}` | ✅ | — | حذف بوست |
+| `POST` | `/posts/{id}/generate-image` | ✅ | 10 | توليد صورة |
+| `POST` | `/posts/{id}/restore-image` | ✅ | — | استعادة صورة سابقة |
+| `POST` | `/posts/{id}/regenerate` | ✅ | 8 | إعادة توليد النص |
+| `POST` | `/posts/{id}/generate-variant` | ✅ | 5 | توليد نسخة بديلة (A/B) |
+| `POST` | `/posts/{id}/generate-content` | ✅ | 5 | توليد محتوى طويل (مدونة/إيميل) |
+| `POST` | `/campaigns/{id}/generate-all-images` | ✅ | 10×N | توليد صور جميع البوستات |
+
+**POST /posts/{id}/generate-image**
+```json
+{
+  "custom_prompt": "صورة احترافية لمنتج تقني",
+  "size": "1024x1024",
+  "logo_data_url": "data:image/png;base64,...",
+  "model": "pro",
+  "reference_images": [{ "url": "...", "weight": 1.0 }]
+}
+→ 200: PostResponse (مع image_url محدّث)
+```
+
+**POST /posts/{id}/restore-image**
+```json
+{ "image_url": "https://..." }
+→ 200: PostResponse
+```
+
+---
+
+### 5.5 Dashboard — `/api/dashboard`
+
+| Method | Endpoint | Auth؟ | الوصف |
+|---|---|---|---|
+| `GET` | `/dashboard/summary` | ✅ | إحصائيات + علامات حديثة |
+| `GET` | `/dashboard/credits` | ✅ | رصيد المستخدم الحالي |
+| `PATCH` | `/dashboard/profile` | ✅ | تحديث الاسم |
+| `POST` | `/dashboard/change-password` | ✅ | تغيير كلمة المرور |
+
+**GET /dashboard/summary → Response**
+```json
+{
+  "brandCount": 5,
+  "campaignCount": 12,
+  "postCount": 84,
+  "credits": 350,
+  "recentBrands": [ ...BrandSummaryResponse ]
+}
+```
+
+---
+
+### 5.6 System — `/api`
+
+| Method | Endpoint | Auth؟ | الوصف |
+|---|---|---|---|
+| `GET` | `/health` | ❌ | فحص صحة الخادم والـ DB |
+| `GET` | `/public-settings` | ❌ | إعدادات الموقع العامة |
+| `GET` | `/jobs/{id}` | ✅ | حالة مهمة خلفية |
+| `GET` | `/storage/images/objects/uploads/{id}` | ❌ | خدمة صورة مخزّنة |
+| `GET` | `/credit-costs` | ❌ | تكلفة كل عملية AI |
+| `GET` | `/docs` | ❌ | Swagger UI (تفاعلي) |
+
+**GET /jobs/{id} → Response**
+```json
+{
+  "id": "uuid",
+  "status": "pending | running | done | failed",
+  "progress": 3,
+  "total": 7,
+  "result": { ... },
+  "error": null
+}
+```
+
+**GET /public-settings → Response**
+```json
+{
+  "siteName": "Brand Architect AI Pro",
+  "tagline": "AI Brand & Marketing OS",
+  "primaryColor": "#7c3aed",
+  "defaultLanguage": "ar",
+  "features": {},
+  "maintenance": { "enabled": false }
+}
+```
+
+---
+
+## 6) خدمات الذكاء الاصطناعي
+
+### 6.1 ترتيب أولوية المزوّد
+
+يتحقق `app/services/ai/client.py` من المفاتيح بهذا الترتيب:
+
+```
+1. OPENAI_API_KEY          → OpenAI مباشرة
+2. AI_INTEGRATIONS_OPENAI_API_KEY → Replit AI Proxy (مُعيَّن تلقائياً)
+3. GEMINI_API_KEY          → Google Gemini
+```
+
+> **الحالة الحالية:** يعمل عبر **Replit AI Integrations** (لا يحتاج مفتاح خاص — يُشحن من رصيد Replit).
+
+### 6.2 توليد Brand Kit (`brand_kit.py`)
+
+- يرسل معلومات الشركة إلى GPT-4o/Gemini
+- يولّد: الشخصية، نبرة الصوت، الألوان، الخطوط، شعارات مرشّحة، قواعد التواصل
+
+### 6.3 توليد الحملات (`campaign.py`)
+
+- يحلّل الموجز (brief) وصور المرجع إن وجدت
+- يولّد خطة أيام مع (caption, hook, cta, hashtags, image_prompt) لكل يوم
+
+### 6.4 توليد الصور (`image.py`)
+
+- **OpenAI:** `gpt-image-1` مع إمكانية إدراج شعار كمرجع (`images.edit`)
+- **Gemini:** استدعاء مباشر لـ `generateContent` بـ httpx (format مختلف عن OpenAI)
+- دعم `reference_images` متعددة كـ base64
+
+### 6.5 النماذج المدعومة حالياً
+
+| الغرض | OpenAI | Gemini |
+|---|---|---|
+| نصوص | gpt-4o-mini (افتراضي) | gemini-2.5-flash |
+| صور | gpt-image-1 | gemini-2.0-flash-exp-image-generation |
+
+---
+
+## 7) نظام الرصيد (Credits)
+
+### التكاليف الافتراضية
+
+| العملية | التكلفة |
+|---|---|
+| توليد Brand Kit | 50 رصيد |
+| توليد حملة تسويقية | 60 رصيد |
+| توليد صورة بوست | 10 رصيد |
+| إعادة توليد نص | 8 رصيد |
+| توليد نسخة بديلة | 5 رصيد |
+| توليد محتوى طويل | 5 رصيد |
+| توليد صور كل الحملة (per post) | 10 رصيد |
+
+### السلوك
+
+- **المستخدم الجديد:** يبدأ بـ **100 رصيد** افتراضياً
+- **المستخدم admin:** مُعفى بالكامل من نظام الرصيد
+- **أول مستخدم مسجّل:** يصبح admin تلقائياً
+- **تعطيل الرصيد:** `CREDITS_ENABLED=false` في المتغيرات البيئية
+- **رصيد غير كافٍ:** يُعيد `402 Payment Required`
+- **فشل العملية:** يُسترجع الرصيد تلقائياً
+
+### تخصيص التكاليف
+
+يمكن تخصيص التكاليف من DB:
+```sql
+INSERT INTO app_settings (key, value) VALUES
+('creditCosts', '{"post.generate-image": 15, "brand.generate-kit": 75}');
+```
+
+---
+
+## 8) الواجهة الأمامية
+
+### الصفحات والمسارات
+
+| المسار | الصفحة | Auth؟ |
+|---|---|---|
+| `/` | Landing / Dashboard (حسب حالة تسجيل الدخول) | — |
+| `/sign-in` | تسجيل الدخول | ❌ |
+| `/sign-up` | إنشاء حساب | ❌ |
+| `/brands/new` | معالج إنشاء علامة | ✅ |
+| `/brands/:id` | Brand Kit (تفاصيل + توليد) | ✅ |
+| `/brands/:id/edit` | تعديل علامة | ✅ |
+| `/brands/:id/campaigns` | قائمة حملات العلامة | ✅ |
+| `/brands/:id/campaigns/new` | إنشاء حملة جديدة | ✅ |
+| `/campaigns/:id` | مساحة عمل الحملة | ✅ |
+| `/nodes` | محرر النودز البصري | ✅ |
+
+### إدارة Auth في Frontend
+
+```typescript
+// AuthContext يخزن التوكن في:
+// 1. httpOnly cookie (auth_token) — أمان
+// 2. localStorage (brand_os_auth_token) — للاستمرارية
+
+// كل API call يرسل:
+Authorization: Bearer <token>
+// + credentials: "include" للكوكي
+```
+
+### إضافة Endpoint جديد للـ Frontend
+
+```typescript
+// في lib/api-client-react أو مباشرة في الصفحة:
+const res = await fetch("/api/my-endpoint", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${getAuthToken()}`,
+  },
+  credentials: "include",
+  body: JSON.stringify(data),
+});
+```
+
+---
+
+## 9) المتغيرات البيئية
+
+| المتغير | المصدر | مطلوب | الوصف |
+|---|---|---|---|
+| `DATABASE_URL` | Replit Postgres (تلقائي) | ✅ | رابط قاعدة البيانات |
+| `AUTH_JWT_SECRET` | Replit userenv | ✅ | مفتاح توقيع JWT |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` | Replit AI Integrations (تلقائي) | ✅* | مفتاح AI عبر Replit Proxy |
+| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Replit AI Integrations (تلقائي) | ✅* | عنوان AI Proxy |
+| `OPENAI_API_KEY` | Replit Secrets (اختياري) | ❌ | مفتاح OpenAI المباشر |
+| `GEMINI_API_KEY` | Replit Secrets (اختياري) | ❌ | مفتاح Google Gemini |
+| `CREDITS_ENABLED` | — | ❌ | `false` لتعطيل نظام الرصيد |
+| `AI_TEXT_MODEL` | — | ❌ | override نموذج النص (افتراضي: gpt-4o-mini) |
+| `AI_TEMPERATURE` | — | ❌ | درجة الإبداعية (افتراضي: 0.7) |
+
+*\* يُعيَّن تلقائياً من Replit AI Integrations — لا حاجة لإضافته يدوياً.*
+
+---
+
+## 10) التشغيل على Replit
+
+### الـ Workflows الفعّالة
+
+| الـ Workflow | الأمر | المنفذ | الحالة |
+|---|---|---|---|
+| `Python API Server` | `uvicorn main:app --host 0.0.0.0 --port 8080 --reload` | 8080 | ✅ فعّال |
+| `Start application` | `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` | 5000 | ✅ فعّال |
+| `API Server` (TypeScript) | — | 8080 | ⛔ محذوف (تعارض مع Python) |
+
+> **تحذير مهم:** لا تشغّل `Python API Server` و `API Server (TypeScript)` في نفس الوقت — كلاهما يستخدم المنفذ 8080.
+
+### بعد أي تعديل على Backend
+
+```bash
+# لا تحتاج restart يدوي — uvicorn --reload يتابع التغييرات تلقائياً
+# لكن إذا أضفت package جديد:
+pip install <package>
+# أضفه أيضاً إلى:
+artifacts/api-server-python/requirements.txt
+```
+
+### بعد أي تعديل على DB Schema
+
+```bash
+pnpm --filter @workspace/db run push
+```
+
+### سكريبت ما بعد الدمج (`scripts/post-merge.sh`)
+
+```bash
+#!/bin/bash
+set -e
+pnpm install --frozen-lockfile
+pnpm --filter @workspace/db run push
+pip install -r artifacts/api-server-python/requirements.txt
+```
+
+---
+
+## 11) إضافة ميزة جديدة
+
+### نمط إضافة Endpoint (Backend)
+
+```
+1. app/models.py         → أضف SQLAlchemy model أو عمود جديد
+2. lib/db/src/schema/    → أضف Drizzle schema المقابل
+3. pnpm --filter @workspace/db run push  → طبّق التغيير على DB
+4. app/schemas.py        → أضف Pydantic schemas للطلب والاستجابة
+5. app/services/         → أضف منطق الأعمال (بدون FastAPI deps)
+6. app/routes/my_route.py → أضف APIRouter
+7. main.py               → app.include_router(my_route.router, prefix="/api")
+```
+
+### نمط إضافة مزوّد Auth جديد
+
+```python
+# 1. أنشئ app/layers/my_auth.py يُنفّذ:
+#    require_user(), get_user_or_none(), create_token(), set_cookie(), clear_cookie()
+# 2. في app/deps.py:
+auth_layer = MyAuthLayer()   # بدلاً من AuthLayer()
+# لا شيء آخر يحتاج تعديل
+```
+
+### نمط إضافة مزوّد AI جديد
+
+```python
+# في app/services/ai/client.py
+# أضف الشرط في دالة _resolve_client():
+if settings.my_provider_api_key:
+    return MyProviderClient(api_key=settings.my_provider_api_key), "my_provider"
+```
+
+---
+
+## 12) الميزات المُنجزة مقابل المخطط لها
+
+### ✅ منجز بالكامل
+
+| الميزة | الملف المسؤول |
+|---|---|
+| تسجيل / دخول / خروج (JWT) | `app/routes/auth.py` |
+| CRUD كامل للعلامات التجارية | `app/routes/brands.py` |
+| CRUD الحملات والبوستات | `app/routes/campaigns.py`, `posts.py` |
+| توليد Brand Kit بالـ AI | `app/services/ai/brand_kit.py` |
+| توليد حملات تسويقية | `app/services/ai/campaign.py` |
+| توليد صور البوستات | `app/services/ai/image.py` |
+| إعادة توليد النصوص + variants | `app/services/ai/post.py` |
+| نظام الرصيد | `app/layers/credits.py` |
+| مهام خلفية + polling | `app/services/job_store.py` |
+| محرر النودز البصري | `artifacts/brand-os/src/pages/nodes/` |
+| لوحة التحكم | `app/routes/dashboard.py` |
+| Swagger UI | `/api/docs` |
+
+### 🔶 موجود في DB لكن Backend غير مفعّل
+
+| الجدول | الحالة |
+|---|---|
+| `designs` | موجود — لا endpoint في Python |
+| `social_accounts` | موجود — لا endpoint في Python |
+| `api_keys` | موجود — لا endpoint في Python |
+| `plans`, `subscriptions` | موجود — لا endpoint في Python |
+| `usage_events` | موجود — لا تسجيل في Python |
+| `webhooks` | موجود — لا endpoint في Python |
+
+### ❌ غير منجز (مخطط مستقبلاً)
+
+| الميزة | الجهد التقريبي | ملاحظات |
+|---|---|---|
+| لوحة Admin | متوسط | راجع `EXCLUDED_FEATURES.md` §3 |
+| Stripe للدفع | عالٍ | stub موجود في `app/layers/payments.py` |
+| نشر مباشر على وسائل التواصل | عالٍ | يحتاج OAuth لكل منصة |
+| جدولة البوستات | متوسط | `scheduled_at` موجود في DB |
+| Brand Book PDF | منخفض | راجع `EXCLUDED_FEATURES.md` §8 |
+| OAuth (Google/GitHub) | متوسط | راجع `EXCLUDED_FEATURES.md` §1.1 |
+| تتبع استخدام الـ AI | منخفض | جدول `usage_events` جاهز |
+| حسابات الفريق (Teams) | عالٍ | يحتاج تغيير Schema |
+
+---
+
+## 13) خارطة الطريق التطويرية
+
+### المرحلة القادمة — أولوية عالية
+
+#### أ) Admin Panel
+
+```python
+# app/routes/admin.py
+@router.get("/admin/users", dependencies=[Depends(require_admin)])
+# endpoints: قائمة المستخدمين، إدارة الأرصدة، تغيير الأدوار، الإحصائيات الكاملة
+```
+
+#### ب) تتبع استخدام الـ AI
+
+```python
+# في كل عملية AI بعد النجاح:
+db.add(UsageEvent(user_id=user.id, action="post.generate-image", cost=10))
+db.commit()
+# + endpoint: GET /api/dashboard/analytics
+```
+
+#### ج) جدولة البوستات
+
+```python
+# الحقل scheduled_at موجود في posts
+# يحتاج: APScheduler أو Celery + background worker
+# POST /api/posts/{id}/schedule → { "scheduled_at": "2026-06-01T10:00:00" }
+```
+
+### المرحلة البعيدة — أولوية متوسطة
+
+#### د) Stripe للدفع
+
+```bash
+pip install stripe
+```
+
+```python
+# app/routes/payments.py
+# POST /api/payments/create-checkout-session
+# POST /api/payments/webhook
+# GET  /api/payments/portal
+```
+
+#### هـ) نشر على وسائل التواصل
+
+```python
+# app/services/social/instagram.py, twitter.py, linkedin.py
+# POST /api/posts/{id}/publish → نشر فوري
+# POST /api/posts/{id}/schedule → جدولة للنشر لاحقاً
+```
 
 ---
 
 ## 14) استكشاف الأعطال
 
-| العَرَض | السبب الأرجح | الحل |
-|---|---|---|
-| `EADDRINUSE :8080` | API workflow مكرر | أوقف أحد الـ workflows |
-| `unable to access 'https://github.com/...': 404` | الـ remote URL خاطئ | عدّل في `.git/config` لاسم المستودع الصحيح |
-| `terminal prompts disabled` | لا توجد credentials للـ Git | احفظ التوكن في `~/.git-credentials` |
-| `Push protection: secret detected` | Commit يحوي مفتاح حقيقي | احذف المفتاح + غيّره فوراً + أعد commit |
-| `OpenAI 401` | المفتاح خاطئ أو منتهي | حدّث `OPENAI_API_KEY` |
-| `Vite preview blank` | host غير مسموح | تحقق من `server.allowedHosts: true` |
-| `index.lock exists` | عملية Git سابقة فشلت | احذف `.git/index.lock` |
-| `Unauthorized` على API | جلسة منتهية | سجّل خروج ثم دخول |
-| Toaster لا يظهر | `Toaster` غير مركّب | متاكد من `App.tsx` (السطر 149) |
+### Python API Server لا يبدأ
+
+```bash
+# تحقق من الـ requirements:
+pip install -r artifacts/api-server-python/requirements.txt
+
+# تحقق من DB URL:
+echo $DATABASE_URL
+
+# شغّل يدوياً للتشخيص:
+cd artifacts/api-server-python && python -c "from app.config import settings; print(settings)"
+```
+
+### خطأ "relation does not exist"
+
+```bash
+# DB Schema غير مُطبَّق — شغّل:
+pnpm --filter @workspace/db run push
+```
+
+### خطأ "AI provider not configured"
+
+```bash
+# تحقق من الـ AI integrations:
+# في Python server logs: يظهر "✓ AI provider configured" أو "⚠ AI provider: ..."
+# الحل: تأكد من أن Replit AI Integrations مُفعّل في إعدادات المشروع
+# أو أضف OPENAI_API_KEY في Replit Secrets
+```
+
+### Frontend يظهر أخطاء 401
+
+```
+طبيعي للمستخدم غير المُسجَّل — /api/auth/me يُعيد 401 دائماً للزوار
+```
+
+### Frontend يظهر أخطاء 502
+
+```bash
+# Backend متوقف — تحقق من workflow "Python API Server"
+# أو شغّله يدوياً:
+cd artifacts/api-server-python && uvicorn main:app --host 0.0.0.0 --port 8080
+```
+
+### رصيد غير كافٍ (402)
+
+```bash
+# تعطيل مؤقت للتطوير:
+# أضف في Replit environment variables:
+CREDITS_ENABLED=false
+
+# أو أضف رصيداً مباشرة:
+UPDATE users SET credits = 9999 WHERE email = 'your@email.com';
+```
 
 ---
 
-## 15) خارطة الطريق المستقبلية
+## قواعد للمطوّرين
 
-أفكار تحسين تم تحديدها كأولويات (مفصّلة في `AGENTS.md` للوكلاء):
-
-1. **Realtime AI Streaming** — بث استجابات GPT بدلاً من الانتظار.
-2. **Webhook Bus** — إعلام المستخدم عند انتهاء توليد طويل.
-3. **متعدد اللغات الكامل (i18n)** — عربي/إنجليزي مع RTL متبادل.
-4. **Drag & Drop Calendar** — جدولة بصرية للمنشورات.
-5. **Brand Voice Tester** — محاكي محادثة لاختبار النبرة.
-6. **A/B Testing للمنشورات** — متغيران ينشران لجمهورين.
-7. **OAuth حقيقي للمنصات** — استبدال الربط اليدوي.
-8. **Insights AI** — تحليل أداء المنشورات السابقة وإعطاء توصيات.
-9. **PWA + Offline mode** — يعمل على الجوال كتطبيق.
-10. **CDN للأصول** — تسريع تحميل الصور.
-
----
-
-> **آخر تحديث:** 26 أبريل 2026  
-> **الحالة:** جاهز للإنتاج | متزامن مع GitHub  
-> **المستودع:** [`mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3.2`](https://github.com/mr-oskar/Brand-Architect-AI-pro-12-main-pro.1.1.3.2)
+1. **الـ Backend الفعّال هو Python فقط** — `artifacts/api-server` موجود للمرجعية ولا يُشغَّل
+2. **لا تكتب secrets في الكود** — كل الأسرار عبر `os.environ` أو Replit Secrets
+3. **لا تستخدم localhost** في الكود — استخدم URLs نسبية (`/api/...`)
+4. **Schema DB = Drizzle** — التعديلات تمر عبر `lib/db/src/schema/` ثم `db push`
+5. **لا تستدعي** `Base.metadata.create_all()` — الجداول مُدارة بـ Drizzle
+6. **الـ Swagger UI** متاح على `/api/docs` للاختبار التفاعلي
+7. **أخطاء المستخدم** دائماً بالإنجليزية — استخدم `notifyError` من `lib/apiError.ts`
