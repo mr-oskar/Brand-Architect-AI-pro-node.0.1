@@ -13,7 +13,7 @@ import {
   GenerateCampaignBody,
   GetBrandStatsParams,
 } from "@workspace/api-zod";
-import { generateBrandKit, generateCampaign, generateBrandStory, generateLongFormContent, type BrandKit } from "../lib/ai";
+import { generateBrandKit, generateCampaign, generateBrandStory, generateLongFormContent, analyzeBrief, type BrandKit } from "../lib/ai";
 import { chargeCredits, refundCredits } from "../lib/credits";
 import { fetchIndustryTrends } from "../lib/trends";
 import { asyncHandler } from "../lib/asyncHandler";
@@ -469,6 +469,109 @@ router.get("/brands/:id/stats", requireAuth, asyncHandler(async (req, res) => {
     hasExtendedKit: !!(brand.brandKit as BrandKit | null)?.brandStory,
     lastCampaignDate: campaigns[0]?.createdAt?.toISOString() ?? null,
   });
+}));
+
+// ─── Smart campaign brief job (new full-pipeline with progress) ───────────────
+
+router.post("/brands/:id/campaign-brief-job", requireAuth, asyncHandler(async (req, res) => {
+  const userId = (req as AuthRequest).userId;
+  const brandId = parseInt(req.params.id, 10);
+  if (isNaN(brandId)) { res.status(400).json({ error: "Invalid brand id" }); return; }
+
+  const body = (req.body ?? {}) as {
+    brief?: string;
+    referenceImages?: string[];
+    postCount?: number;
+    platforms?: string[];
+  };
+
+  const brief = body.brief?.trim() || undefined;
+  const referenceImages: string[] = Array.isArray(body.referenceImages) ? body.referenceImages.slice(0, 5) : [];
+  const postCount = Math.min(Math.max(Number(body.postCount ?? 7), 1), 14);
+  const platforms: string[] = Array.isArray(body.platforms) && body.platforms.length > 0 ? body.platforms : ["instagram"];
+
+  const [brand] = await db.select().from(brandsTable).where(and(eq(brandsTable.id, brandId), eq(brandsTable.userId, userId)));
+  if (!brand) { res.status(404).json({ error: "Brand not found" }); return; }
+
+  const { charged } = await chargeCredits(userId, "brand.generate-campaign", Math.max(1, postCount / 7));
+
+  const jobId = randomUUID();
+  createJob(jobId, 6, userId);
+  res.status(202).json({ jobId });
+
+  // Run the full pipeline asynchronously with per-step progress updates
+  (async () => {
+    try {
+      updateJob(jobId, { status: "running", progress: 0, result: { _step: 0 } });
+
+      // Step 0: Analyze brief
+      const analyzed = await analyzeBrief(brief ?? "", referenceImages, brand.companyName, brand.industry);
+      updateJob(jobId, { progress: 1, result: { _step: 1 } });
+
+      // Step 1: Fetch trends
+      const trendData = await fetchIndustryTrends(brand.industry, brief);
+      updateJob(jobId, { progress: 2, result: { _step: 2 } });
+
+      // Step 2: Image analysis step (already done in analyzeBrief, just advance)
+      await new Promise((r) => setTimeout(r, 400));
+      updateJob(jobId, { progress: 3, result: { _step: 3 } });
+
+      // Step 3: Ensure brand kit
+      let kit = brand.brandKit as BrandKit | null;
+      if (!kit) {
+        kit = await generateBrandKit(brand.companyName, brand.companyDescription, brand.industry);
+        await db.update(brandsTable).set({ brandKit: kit, status: "kit_ready" }).where(and(eq(brandsTable.id, brandId), eq(brandsTable.userId, userId)));
+      }
+
+      // Step 4: Generate campaign with analyzed brief
+      const campaignData = await generateCampaign(
+        brand.companyName, brand.companyDescription, brand.industry,
+        kit, brief, postCount, platforms, trendData.summary, analyzed,
+      );
+      updateJob(jobId, { progress: 4, result: { _step: 4 } });
+
+      // Step 5: Save to database
+      const [campaign] = await db
+        .insert(campaignsTable)
+        .values({ brandId: brand.id, title: campaignData.title, strategy: campaignData.strategy, days: campaignData.days })
+        .returning();
+
+      const insertedPosts = await db
+        .insert(postsTable)
+        .values(
+          campaignData.posts.map((p) => ({
+            campaignId: campaign.id,
+            day: p.day,
+            caption: p.caption,
+            hook: p.hook,
+            cta: p.cta,
+            hashtags: p.hashtags,
+            imagePrompt: p.imagePrompt,
+            platform: p.platform,
+          }))
+        )
+        .returning();
+
+      await db.update(brandsTable).set({ status: "active" }).where(and(eq(brandsTable.id, brand.id), eq(brandsTable.userId, userId)));
+      updateJob(jobId, { progress: 5, result: { _step: 5 } });
+
+      const result = {
+        id: campaign.id,
+        brandId: campaign.brandId,
+        title: campaign.title,
+        strategy: campaign.strategy,
+        days: campaign.days,
+        posts: insertedPosts.map((p) => ({ ...p, createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString() })),
+        createdAt: campaign.createdAt.toISOString(),
+        updatedAt: campaign.updatedAt.toISOString(),
+      };
+
+      updateJob(jobId, { status: "done", progress: 6, result });
+    } catch (err) {
+      updateJob(jobId, { status: "failed", error: err instanceof Error ? err.message : "Unknown error" });
+      await refundCredits(userId, charged).catch(() => {});
+    }
+  })();
 }));
 
 export default router;

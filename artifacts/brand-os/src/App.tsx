@@ -19,6 +19,7 @@ const BrandEdit = lazy(() => import("@/pages/BrandEdit"));
 const BrandDesignStudio = lazy(() => import("@/pages/BrandDesignStudio"));
 const BrandBook = lazy(() => import("@/pages/BrandBook"));
 const CampaignList = lazy(() => import("@/pages/CampaignList"));
+const CampaignBriefPage = lazy(() => import("@/pages/CampaignBriefPage"));
 const CampaignWorkspace = lazy(() => import("@/pages/CampaignWorkspace"));
 const ContentCalendar = lazy(() => import("@/pages/ContentCalendar"));
 const Assets = lazy(() => import("@/pages/Assets"));
@@ -90,6 +91,7 @@ function ProtectedAppShell() {
               <Switch>
                 <Route path="/brands/new" component={BrandWizard} />
                 <Route path="/brands/:id/edit" component={BrandEdit} />
+                <Route path="/brands/:id/campaigns/new" component={CampaignBriefPage} />
                 <Route path="/brands/:id/campaigns" component={CampaignList} />
                 <Route path="/brands/:id" component={BrandKit} />
                 <Route path="/campaigns/:id" component={CampaignWorkspace} />

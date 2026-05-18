@@ -1043,12 +1043,11 @@ export default function BrandKit() {
                 </button>
               )}
               <button
-                onClick={() => { setGenerateError(null); setShowBriefModal(true); }}
-                disabled={generating}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
               >
-                {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                {generating ? "Generating..." : "Launch Campaign"}
+                <Sparkles className="w-3.5 h-3.5" />
+                Launch Campaign
               </button>
             </div>
           </div>
@@ -1205,12 +1204,11 @@ export default function BrandKit() {
                     Generate a multi-platform marketing campaign with AI-composed images and brand-consistent copy.
                   </p>
                   <button
-                    onClick={() => { setGenerateError(null); setShowBriefModal(true); }}
-                    disabled={generating}
-                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                    onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    {generating ? "Generating..." : "Launch Campaign Wizard"}
+                    Launch Campaign Wizard
                   </button>
                 </div>
               </div>

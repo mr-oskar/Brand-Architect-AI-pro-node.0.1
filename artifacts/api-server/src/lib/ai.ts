@@ -274,6 +274,14 @@ Write in first-person plural ("we"). Keep each paragraph 3-4 sentences. Be speci
 
 // ─── Campaign Generation ──────────────────────────────────────────────────────
 
+const PLATFORM_SIZES: Record<string, { size: string; ratio: string }> = {
+  instagram: { size: "1080×1080px", ratio: "1:1 square" },
+  instagram_portrait: { size: "1080×1350px", ratio: "4:5 portrait" },
+  linkedin: { size: "1200×628px", ratio: "1.91:1 landscape" },
+  twitter: { size: "1200×675px", ratio: "16:9 landscape" },
+  facebook: { size: "1200×630px", ratio: "1.91:1 landscape" },
+};
+
 export async function generateCampaign(
   companyName: string,
   companyDescription: string,
@@ -282,25 +290,43 @@ export async function generateCampaign(
   brief?: string,
   postCount: number = 7,
   platforms: string[] = ["instagram"],
-  trendContext?: string
+  trendContext?: string,
+  analyzedBrief?: AnalyzedBrief
 ): Promise<CampaignData> {
   const count = Math.min(Math.max(Math.round(postCount), 1), 14);
   const platformList = platforms.length > 0 ? platforms : ["instagram"];
   logger.info({ companyName, industry, count, platforms: platformList }, `Generating ${count}-post campaign with AI`);
 
-  const briefContext = brief
-    ? `\n\nCRITICAL campaign brief from client (follow this closely):\n"${brief}"\n`
+  const palette = brandKit.colorPalette;
+  const style = brandKit.visualStyle;
+  const platformStr = platformList.join(", ");
+
+  const isArabic = analyzedBrief?.language === "arabic" || analyzedBrief?.language === "bilingual" || /[\u0600-\u06FF]/.test(brief ?? "");
+  const languageInstruction = isArabic
+    ? `LANGUAGE: Write ALL captions and hooks in Arabic (Modern Standard Arabic / العربية الفصحى). Hashtags should be in both Arabic and English. Arabic text must be right-to-left, culturally appropriate for Arab markets, and use engaging colloquial expressions when suitable for the platform.`
+    : `LANGUAGE: Write in English unless the brand/brief specifies otherwise.`;
+
+  const analyzedBriefSection = analyzedBrief
+    ? `\n\nANALYZED CAMPAIGN BRIEF:
+- Objective: ${analyzedBrief.objective}
+- Target Audience: ${analyzedBrief.targetAudience}
+- Tone: ${analyzedBrief.tone}
+- Themes: ${analyzedBrief.themes.join(", ")}
+- Enhanced Brief: ${analyzedBrief.enhancedBrief}
+${analyzedBrief.visualStyleFromImages ? `- Reference Image Style: ${analyzedBrief.visualStyleFromImages}` : ""}`
     : "";
+
+  const briefContext = brief
+    ? `\n\nCRITICAL campaign brief from client (follow this closely):\n"${brief}"\n${analyzedBriefSection}`
+    : analyzedBriefSection
+      ? `\n\n${analyzedBriefSection}`
+      : "";
 
   const trendSection = trendContext
     ? `\n\n${trendContext}\n\nIMPORTANT: Integrate relevant trends, keywords, and current cultural moments above into the campaign strategy and post content. Reference real trends to make posts feel timely and relevant. Apply the modern design best practices in the image prompts.`
     : "";
 
-  const palette = brandKit.colorPalette;
-  const style = brandKit.visualStyle;
-  const platformStr = platformList.join(", ");
-
-  const systemPrompt = `You are a world-class social media strategist, creative director, and brand consultant with 15 years experience building viral campaigns for global brands. You have deep knowledge of the latest design trends, visual aesthetics, and digital marketing best practices for 2025-2026. You create complete ${count}-day multi-platform marketing campaigns that are specific, creative, culturally relevant, and trend-aware. Every post you write is UNIQUE, TAILORED, and MODERN. You ALWAYS respond with valid JSON only — no markdown, no explanation, just the raw JSON object.`;
+  const systemPrompt = `You are a world-class social media strategist, creative director, and brand consultant with 15 years experience building viral campaigns for global brands. You have deep knowledge of the latest design trends, visual aesthetics, and digital marketing best practices for 2025-2026. You create complete ${count}-day multi-platform marketing campaigns that are specific, creative, culturally relevant, and trend-aware. You are fluent in Arabic and English. ${languageInstruction} Every post you write is UNIQUE, TAILORED, and MODERN. You ALWAYS respond with valid JSON only — no markdown, no explanation, just the raw JSON object.`;
 
   const imageStyleNotes = style === "luxury"
     ? "editorial aspirational mood, magazine-quality lighting, elegant negative space, premium textures, soft film grain, fashion-forward composition"
@@ -349,7 +375,7 @@ Return a JSON object with exactly this structure:
       "caption": "Full platform-appropriate caption (3-5 paragraphs). Match the brand's exact tone. Weave in relevant trends naturally. Use line breaks. End with the CTA.",
       "cta": "Specific call to action that matches the day's objective",
       "hashtags": ["#relevant1", "#relevant2", "#trending3", "#niche4", "#brand5"],
-      "imagePrompt": "Professional commercial visual for ${companyName}: [describe the specific scene in detail]. Visual direction: ${style} aesthetic — ${imageStyleNotes}. Color palette: ${palette.primary} as hero color, ${palette.secondary} supporting, ${palette.accent} for accents. Lighting: [specify mood-appropriate lighting]. Composition: [describe layout — hero subject placement, supporting elements, depth]. Typography integration: [specify if text/headline should be part of the image, what it says, and its style — bold sans-serif, script, display font, etc.]. Include brand name or key message text in the design if appropriate for the concept. Logo placement area: reserve clean space in [corner/area] if logo overlay is needed. Quality: ultra-high resolution, commercial advertising quality, 16:9 ratio."
+      "imagePrompt": "Professional commercial visual for ${companyName}: [describe the specific scene in detail]. Canvas size: EXACT ${platformList.map((p) => { const s = PLATFORM_SIZES[p] ?? PLATFORM_SIZES["instagram"]; return `${p}: ${s.size} (${s.ratio})`; }).join("; ")} — do NOT change or assume any other aspect ratio. Visual direction: ${style} aesthetic — ${imageStyleNotes}.${analyzedBrief?.visualStyleFromImages ? ` Inspired by reference images: ${analyzedBrief.visualStyleFromImages}.` : ""} Color palette: ${palette.primary} as hero color, ${palette.secondary} supporting, ${palette.accent} for accents. Lighting: [specify mood-appropriate lighting]. Composition: [describe layout — hero subject placement, supporting elements, depth]. Typography integration: [specify if text/headline should be part of the image; if the campaign language is Arabic, the text inside the image MUST be in clear, legible Arabic script using a professional Arabic font]. Include brand name or key message text in the design if appropriate. Logo placement area: reserve clean space in [corner/area] if logo overlay is needed. Quality: ultra-high resolution, commercial advertising quality."
     }
     ... (${count} posts total, one per day)
   ]
@@ -546,6 +572,105 @@ Return JSON:
 }
 
 // ─── Image with Logo Overlay ──────────────────────────────────────────────────
+
+// ─── Brief Analysis ───────────────────────────────────────────────────────────
+
+export interface AnalyzedBrief {
+  objective: string;
+  targetAudience: string;
+  language: "arabic" | "english" | "bilingual";
+  tone: string;
+  themes: string[];
+  visualStyleFromImages: string;
+  enhancedBrief: string;
+}
+
+export async function analyzeBrief(
+  brief: string,
+  referenceImages: string[] = [],
+  companyName = "",
+  industry = ""
+): Promise<AnalyzedBrief> {
+  logger.info({ companyName, hasImages: referenceImages.length > 0 }, "Analyzing campaign brief");
+
+  const model = process.env.AI_TEXT_MODEL || "gpt-5-nano";
+
+  let visualStyleFromImages = "";
+
+  if (referenceImages.length > 0) {
+    try {
+      const imageMessages = referenceImages.slice(0, 3).map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: img, detail: "low" as const },
+      }));
+
+      const visionResp = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_completion_tokens: 400,
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...imageMessages,
+              {
+                type: "text",
+                text: "Analyze these reference images and describe their visual style for use in AI image generation. Focus on: color palette, composition style, lighting mood, typography style, overall aesthetic. Keep it concise and actionable for image prompts.",
+              },
+            ],
+          },
+        ],
+      });
+      visualStyleFromImages = visionResp.choices[0]?.message?.content?.trim() ?? "";
+    } catch (err) {
+      logger.warn({ err }, "Failed to analyze reference images");
+    }
+  }
+
+  const systemPrompt = `You are a senior marketing strategist. Analyze a campaign brief and return a structured JSON analysis. Always respond with valid JSON only.`;
+
+  const userPrompt = `Analyze this campaign brief for ${companyName} in the ${industry} industry:
+
+Brief: "${brief}"
+
+${visualStyleFromImages ? `Reference image style: ${visualStyleFromImages}` : ""}
+
+Return JSON with this exact structure:
+{
+  "objective": "one sentence campaign objective",
+  "targetAudience": "specific audience description",
+  "language": "arabic" | "english" | "bilingual",
+  "tone": "tone description (e.g. warm, energetic, professional)",
+  "themes": ["theme1", "theme2", "theme3"],
+  "enhancedBrief": "enriched 2-3 sentence brief with more specific details for AI generation"
+}
+
+Detect language from the brief text itself. If brief is in Arabic or mentions Arabic-speaking audience, set language to "arabic". If mixed, set "bilingual".`;
+
+  try {
+    const raw = await openai.chat.completions.create({
+      model,
+      max_completion_tokens: 600,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }).then((r) => r.choices[0]?.message?.content ?? "{}");
+
+    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned) as AnalyzedBrief;
+    return { ...parsed, visualStyleFromImages };
+  } catch {
+    return {
+      objective: brief.slice(0, 100),
+      targetAudience: "General audience",
+      language: /[\u0600-\u06FF]/.test(brief) ? "arabic" : "english",
+      tone: "professional and engaging",
+      themes: [],
+      visualStyleFromImages,
+      enhancedBrief: brief,
+    };
+  }
+}
 
 export async function generateImageWithLogoOverlay(
   imagePrompt: string,
