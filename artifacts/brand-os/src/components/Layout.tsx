@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Sparkles, PlusCircle, Menu, X,
-  Library, LayoutTemplate, ShieldCheck, ChevronRight, Bell, Moon, Sun, CalendarDays, LogOut, Workflow,
+  ChevronRight, Bell, Moon, Sun, LogOut,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -10,15 +10,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSettings } from "@/contexts/SiteSettingsContext";
 import { getGetDashboardSummaryQueryKey, getListBrandsQueryKey } from "@workspace/api-client-react";
 
-function buildNavSections(isAdmin: boolean, features: { analytics: boolean; templates: boolean; socialPublishing: boolean }) {
-  const tools = [
-    { href: "/nodes", label: "Nodes", icon: Workflow },
-    { href: "/calendar", label: "Content Calendar", icon: CalendarDays },
-    { href: "/assets", label: "Asset Library", icon: Library },
-  ];
-  if (features.templates !== false) tools.push({ href: "/templates", label: "Templates", icon: LayoutTemplate });
-
-  const sections = [
+function buildNavSections() {
+  return [
     {
       label: "Workspace",
       items: [
@@ -26,15 +19,7 @@ function buildNavSections(isAdmin: boolean, features: { analytics: boolean; temp
         { href: "/brands/new", label: "New Brand", icon: PlusCircle },
       ],
     },
-    { label: "Tools", items: tools },
   ];
-  if (isAdmin) {
-    sections.push({
-      label: "System",
-      items: [{ href: "/admin", label: "Admin Panel", icon: ShieldCheck }],
-    });
-  }
-  return sections;
 }
 
 function usePrefetchCoreData() {
@@ -79,7 +64,6 @@ function UserProfile() {
         </div>
       </div>
 
-      {/* Credits balance */}
       <button
         onClick={() => refresh()}
         title="نقاطك المتاحة — اضغط للتحديث"
@@ -117,10 +101,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(() => document.documentElement.classList.contains("dark"));
-  const { user } = useAuth();
   const { settings } = useSiteSettings();
-  const isAdmin = (user?.role ?? "") === "admin";
-  const navSections = buildNavSections(isAdmin, settings.features);
+  const navSections = buildNavSections();
   usePrefetchCoreData();
 
   function toggleDark() {
@@ -136,7 +118,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-50 w-64 flex flex-col transition-transform duration-200",
@@ -144,7 +125,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
-        {/* Logo */}
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border gap-3">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm">
             <Sparkles className="w-4 h-4 text-primary-foreground" />
@@ -161,7 +141,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
           {navSections.map((section) => (
             <div key={section.label}>
@@ -197,7 +176,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* Footer controls */}
         <div className="px-3 py-4 border-t border-sidebar-border space-y-1">
           <button
             onClick={toggleDark}
@@ -209,13 +187,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors">
             <Bell className="w-4 h-4" />
             Notifications
-            <span className="ml-auto w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">3</span>
           </button>
           <UserProfile />
         </div>
       </aside>
 
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 lg:hidden"
@@ -223,9 +199,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Main content */}
       <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
-        {/* Top bar - mobile */}
         <header className="lg:hidden h-14 border-b border-border flex items-center px-4 bg-background/95 backdrop-blur sticky top-0 z-30">
           <button
             className="text-foreground/60 hover:text-foreground"

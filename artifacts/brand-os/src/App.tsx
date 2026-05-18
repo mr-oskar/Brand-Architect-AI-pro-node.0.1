@@ -16,16 +16,9 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const BrandWizard = lazy(() => import("@/pages/BrandWizard"));
 const BrandKit = lazy(() => import("@/pages/BrandKit"));
 const BrandEdit = lazy(() => import("@/pages/BrandEdit"));
-const BrandDesignStudio = lazy(() => import("@/pages/BrandDesignStudio"));
-const BrandBook = lazy(() => import("@/pages/BrandBook"));
 const CampaignList = lazy(() => import("@/pages/CampaignList"));
 const CampaignBriefPage = lazy(() => import("@/pages/CampaignBriefPage"));
 const CampaignWorkspace = lazy(() => import("@/pages/CampaignWorkspace"));
-const ContentCalendar = lazy(() => import("@/pages/ContentCalendar"));
-const Assets = lazy(() => import("@/pages/Assets"));
-const Templates = lazy(() => import("@/pages/Templates"));
-const Admin = lazy(() => import("@/pages/Admin"));
-const NodesEditor = lazy(() => import("@/pages/NodesEditor"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const SignIn = lazy(() => import("@/pages/SignIn"));
@@ -81,30 +74,19 @@ function HomeRedirect() {
 function ProtectedAppShell() {
   return (
     <Suspense fallback={<PageLoader />}>
-      <Switch>
-        <Route path="/brands/:id/design" component={BrandDesignStudio} />
-        <Route path="/brands/:id/book" component={BrandBook} />
-        <Route path="/nodes" component={NodesEditor} />
-        <Route>
-          <Layout>
-            <Suspense fallback={<PageLoader />}>
-              <Switch>
-                <Route path="/brands/new" component={BrandWizard} />
-                <Route path="/brands/:id/edit" component={BrandEdit} />
-                <Route path="/brands/:id/campaigns/new" component={CampaignBriefPage} />
-                <Route path="/brands/:id/campaigns" component={CampaignList} />
-                <Route path="/brands/:id" component={BrandKit} />
-                <Route path="/campaigns/:id" component={CampaignWorkspace} />
-                <Route path="/calendar" component={ContentCalendar} />
-                <Route path="/assets" component={Assets} />
-                <Route path="/templates" component={Templates} />
-                <Route path="/admin" component={Admin} />
-                <Route component={NotFound} />
-              </Switch>
-            </Suspense>
-          </Layout>
-        </Route>
-      </Switch>
+      <Layout>
+        <Suspense fallback={<PageLoader />}>
+          <Switch>
+            <Route path="/brands/new" component={BrandWizard} />
+            <Route path="/brands/:id/edit" component={BrandEdit} />
+            <Route path="/brands/:id/campaigns/new" component={CampaignBriefPage} />
+            <Route path="/brands/:id/campaigns" component={CampaignList} />
+            <Route path="/brands/:id" component={BrandKit} />
+            <Route path="/campaigns/:id" component={CampaignWorkspace} />
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
+      </Layout>
     </Suspense>
   );
 }
@@ -128,7 +110,6 @@ function ProtectedRoutes() {
   const { settings } = useSiteSettings();
   if (isLoading) return <FullScreenLoader />;
   if (!user) return <Redirect to="/sign-in" />;
-  // Maintenance gate: block non-admins when enabled.
   if (settings.maintenance?.enabled && user.role !== "admin") {
     return <MaintenanceScreen message={settings.maintenance.message} />;
   }
