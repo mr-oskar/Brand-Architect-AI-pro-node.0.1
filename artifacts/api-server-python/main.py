@@ -1,31 +1,40 @@
 """
 Brand Architect AI Pro — Python/FastAPI Backend (v2.0)
 
-Entry point. All configuration is in app/config.py.
+Entry point. All configuration lives in app/config.py.
 All routes are mounted under /api/.
 
-To run:
-    uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+── Middleware stack (outermost → innermost) ──────────────────────────────────
+  CORSMiddleware        — handles cross-origin headers (outermost, runs first)
+  SlowAPIMiddleware     — enforces per-IP rate limits
+  RequestLoggerMiddleware — logs every request + timing (innermost, runs last)
 
-Extension points:
-  - Add new routers by importing and including them below.
-  - Add middleware (rate limiting, request logging, etc.) in the middleware section.
-  - For multi-process production: use gunicorn with uvicorn workers.
-    See DEPLOYMENT.md for details.
+── To add a new feature module ───────────────────────────────────────────────
+  1. Create app/routes/my_feature.py with an APIRouter
+  2. Import it below and call app.include_router(my_feature.router, prefix="/api")
+  3. Add Pydantic schemas to app/schemas.py
+  4. Add business logic to app/services/my_feature.py
+
+── To add new middleware ─────────────────────────────────────────────────────
+  1. Create app/middleware/my_middleware.py (see app/middleware/logging.py as template)
+  2. Import and register with app.add_middleware() in the Middleware section below
+  3. Document it in app/middleware/__init__.py
+
+── To run ────────────────────────────────────────────────────────────────────
+  uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 """
 import logging
-import time
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.layers.rate_limit import limiter, rate_limit_exceeded_handler
+from app.middleware import RequestLoggerMiddleware
 from app.routes import auth, brands, campaigns, posts, dashboard, system
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -51,34 +60,23 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
 
-# ── Middleware ────────────────────────────────────────────────────────────────
+# ── Middleware (add innermost first, outermost last) ──────────────────────────
+#
+# Starlette middleware stacks in reverse registration order:
+#   last added = outermost (runs first on request, last on response)
+#
+# Current order (request flow: CORS → SlowAPI → Logger → handler):
 
-app.add_middleware(
+app.add_middleware(RequestLoggerMiddleware)   # innermost: logs actual route timing
+app.add_middleware(SlowAPIMiddleware)          # middle:    rate limit checks
+app.add_middleware(                            # outermost: CORS headers
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def request_logger(request: Request, call_next):
-    """Log every request with method, path, and response time."""
-    start = time.perf_counter()
-    response: Response = await call_next(request)
-    elapsed = (time.perf_counter() - start) * 1000
-    logger.info(
-        "%s %s → %d (%.1fms)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        elapsed,
-    )
-    return response
-
 
 # ── Exception handlers ────────────────────────────────────────────────────────
 
@@ -87,7 +85,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     """Return clean 400 errors for invalid request bodies."""
     errors = exc.errors()
     message = "; ".join(
-        f"{' → '.join(str(l) for l in e['loc'])}: {e['msg']}"
+        f"{' → '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
         for e in errors
     )
     return JSONResponse(status_code=400, content={"error": message, "detail": errors})
@@ -103,11 +101,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-#
-# All routes are under /api/ prefix.
-# To add a new feature module:
-#   1. Create app/routes/my_feature.py with an APIRouter.
-#   2. Import it here and call app.include_router(my_feature.router, prefix="/api").
 
 app.include_router(auth.router,       prefix="/api")
 app.include_router(brands.router,     prefix="/api")
@@ -134,11 +127,8 @@ def root():
 @app.on_event("startup")
 def startup_event():
     logger.info("Brand Architect AI Pro (Python) starting up...")
+    logger.info("✓ CORS origins: %s", settings.allowed_origins)
 
-    # Log CORS origins for visibility
-    logger.info("✓ CORS allowed origins: %s", settings.allowed_origins)
-
-    # Validate DB connection on startup
     try:
         from app.database import engine
         from sqlalchemy import text
@@ -148,7 +138,6 @@ def startup_event():
     except Exception as e:
         logger.error("✗ Database connection failed: %s", e)
 
-    # Warn about missing AI provider (don't crash — let routes return 503)
     try:
         from app.services.ai.client import get_client
         get_client()
@@ -157,4 +146,5 @@ def startup_event():
         logger.warning("⚠ AI provider: %s", e)
 
     logger.info("✓ Rate limiting active (slowapi)")
+    logger.info("✓ Middleware: CORS → SlowAPI → RequestLogger")
     logger.info("✓ Server ready — listening on /api/*")

@@ -1,0 +1,116 @@
+/**
+ * Shared TypeScript types for the Brand Architect AI Pro frontend.
+ *
+ * These types are hand-written to supplement the auto-generated API types
+ * in `@workspace/api-client-react`. Use these for:
+ *   - UI-only types (component props, local state shapes)
+ *   - Types derived from API responses but enriched for the frontend
+ *   - Shared enums and constants used across multiple pages
+ *
+ * Auto-generated API types live in:
+ *   lib/api-client-react/src/generated/api.schemas.ts
+ *
+ * To add a new type:
+ *   1. Define it here if it's UI-only or shared across pages
+ *   2. If it maps directly to an API schema, prefer importing from api-client-react
+ *   3. Export from this file so consumers do: import { MyType } from "@/types"
+ */
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+/** Authenticated user as stored in AuthContext. */
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "admin" | "user";
+  status: "active" | "suspended" | string;
+  credits: number;
+}
+
+// ── Brand ─────────────────────────────────────────────────────────────────────
+
+/** Social media platform identifiers. */
+export type SocialPlatform = "instagram" | "twitter" | "linkedin" | "facebook" | "tiktok";
+
+/** Brand color palette entry. */
+export interface BrandColor {
+  name: string;
+  hex: string;
+  usage?: string;
+}
+
+/** Typography configuration from AI brand kit. */
+export interface BrandTypography {
+  primary: string;
+  secondary?: string;
+  heading?: string;
+  body?: string;
+}
+
+/** Full AI-generated brand kit. */
+export interface BrandKit {
+  tagline?: string;
+  brandStory?: string;
+  brandVoice?: string[];
+  targetAudience?: string;
+  colors?: BrandColor[];
+  typography?: BrandTypography;
+  logoPrompt?: string;
+  contentPillars?: string[];
+}
+
+// ── Campaign ──────────────────────────────────────────────────────────────────
+
+/** Post publish status. */
+export type PublishStatus = "draft" | "scheduled" | "published" | "failed";
+
+/** Post as displayed in the campaign workspace. */
+export interface PostSummary {
+  id: number;
+  day: number;
+  caption: string | null;
+  hook: string | null;
+  cta: string | null;
+  hashtags: string[] | null;
+  imageUrl: string | null;
+  imagePrompt: string | null;
+  platform: SocialPlatform | string;
+  publishStatus: PublishStatus;
+  scheduledAt: string | null;
+}
+
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+
+/** Background job status returned from GET /api/jobs/:id */
+export type JobStatus = "pending" | "running" | "done" | "failed";
+
+export interface JobProgress {
+  id: string;
+  status: JobStatus;
+  progress: number;
+  total: number;
+  step?: string;
+  result?: unknown;
+  error?: string | null;
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+
+/** Generic async operation state for local component state. */
+export interface AsyncState<T = void> {
+  data: T | null;
+  isLoading: boolean;
+  error: string | null;
+}
+
+/** Paginated API response wrapper. */
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Toast notification variant. */
+export type ToastVariant = "default" | "destructive";

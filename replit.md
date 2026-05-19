@@ -27,13 +27,21 @@ The frontend (`/api/*` requests) proxies to the backend via Vite config. Never r
 |---|---|
 | Add/change API endpoint | `artifacts/api-server-python/app/routes/*.py` |
 | Change AI behavior | `artifacts/api-server-python/app/services/ai/*.py` |
-| Add DB table | `artifacts/api-server-python/app/models.py` + `lib/db/src/schema/*.ts` |
+| Add DB table | `artifacts/api-server-python/app/models.py` |
+| Add HTTP middleware | `artifacts/api-server-python/app/middleware/` → register in `main.py` |
+| Add shared backend util | `artifacts/api-server-python/app/utils/` |
 | Change UI/page | `artifacts/brand-os/src/pages/*.tsx` |
 | Change app layout | `artifacts/brand-os/src/components/Layout.tsx` |
+| Add shared TypeScript type | `artifacts/brand-os/src/types/index.ts` |
+| Add app-wide constant | `artifacts/brand-os/src/lib/constants.ts` |
+| Add custom React hook | `artifacts/brand-os/src/hooks/` |
 | Change API types | `lib/api-spec/openapi.yaml` → then run codegen |
 | Change auth logic | `artifacts/api-server-python/app/layers/auth.py` |
 | Change credit costs | `artifacts/api-server-python/app/layers/credits.py` |
 | Add env variable | Read environment-secrets skill first |
+| Full backend architecture | See `BACKEND_GUIDE.md` |
+| Full frontend architecture | See `FRONTEND_GUIDE.md` |
+| Track what changed | See `CHANGELOG.md` |
 
 ### Critical constraints — never break these
 
@@ -92,31 +100,78 @@ pnpm --filter @workspace/api-spec run codegen
 
 ## Python Backend — key files
 
+> Full guide → **`BACKEND_GUIDE.md`**
+
 ```
 artifacts/api-server-python/
-  main.py                    ← entry point (uvicorn main:app)
+  main.py                    ← App factory: middleware registration + route mounting
   app/
-    config.py                ← env var config (pydantic-settings)
-    models.py                ← SQLAlchemy ORM (matches actual DB schema)
-    schemas.py               ← Pydantic request/response schemas
-    database.py              ← SQLAlchemy engine + SessionLocal
-    deps.py                  ← FastAPI dependencies (auth, db)
-    layers/
-      auth.py                ← JWT + bcrypt auth (pluggable)
-      credits.py             ← credit deduction/refund (disable: CREDITS_ENABLED=false)
+    config.py                ← All env vars via pydantic-settings
+    models.py                ← SQLAlchemy ORM (User, Brand, Campaign, Post)
+    schemas.py               ← Pydantic v2 request/response schemas (camelCase)
+    database.py              ← SQLAlchemy engine + SessionLocal + get_db()
+    deps.py                  ← FastAPI Depends(): get_current_user, get_current_admin
+    middleware/              ← HTTP middleware (one class per file)
+      logging.py             ← RequestLoggerMiddleware (method/path/status/timing)
+    layers/                  ← Cross-cutting concerns
+      auth.py                ← JWT + bcrypt auth (pluggable — swap provider in deps.py)
+      credits.py             ← Credit deduction/refund (disable: CREDITS_ENABLED=false)
       payments.py            ← Stripe stub (documented, not implemented)
-    routes/
+      rate_limit.py          ← slowapi Limiter + 429 error handler
+    routes/                  ← One router per feature domain
       auth.py / brands.py / campaigns.py / posts.py / dashboard.py / system.py
     services/
       ai/client.py           ← OpenAI/Gemini client resolver
-      ai/brand_kit.py        ← brand kit + brand story generation
-      ai/campaign.py         ← campaign generation
-      ai/post.py             ← regenerate/variant/long-form content
-      ai/image.py            ← image generation (with logo/references)
-      image_storage.py       ← local file storage for generated images
-      job_store.py           ← in-memory background job tracker
-      logo_processor.py      ← logo variants (black/white/grayscale) + color extraction
-  EXCLUDED_FEATURES.md       ← full list of excluded features + how to add them
+      ai/brand_kit.py        ← Brand kit + brand story generation
+      ai/campaign.py         ← Campaign generation
+      ai/post.py             ← Regenerate/variant/long-form content
+      ai/image.py            ← Image generation (with logo/references)
+      image_storage.py       ← Local file storage for generated images
+      job_store.py           ← In-memory background job tracker
+      logo_processor.py      ← Logo variants (B&W/grayscale) + color extraction
+    utils/                   ← Shared stateless helpers (import freely in routes/services)
+      pagination.py          ← PaginationParams (FastAPI Depends) + paginate()
+      ownership.py           ← get_owned_brand/campaign/post() → 404 if not owned
+      ai_errors.py           ← handle_ai_error(e) → maps AI exceptions to HTTP 503/422
+  EXCLUDED_FEATURES.md       ← Full list of excluded features + how to add them
+```
+
+## React Frontend — key files
+
+> Full guide → **`FRONTEND_GUIDE.md`**
+
+```
+artifacts/brand-os/src/
+  App.tsx                    ← Root: providers, router, auth guard, lazy routes
+  main.tsx                   ← DOM mount point
+  types/
+    index.ts                 ← Shared TypeScript types (AuthUser, BrandKit, JobProgress…)
+  lib/
+    constants.ts             ← App-wide constants (limits, keys, intervals, platforms)
+    apiError.ts              ← extractApiError(), notifyError(), notifySuccess()
+    colorExtractor.ts        ← Canvas-based color extraction from logos
+    utils.ts                 ← cn() — Tailwind class merger
+  hooks/
+    useDebounce.ts           ← Debounce a value (search inputs)
+    useLocalStorage.ts       ← localStorage-backed useState
+    useJobPoller.ts          ← Poll GET /api/jobs/:id until done/failed
+    use-toast.ts             ← Toast notification hook
+  contexts/
+    AuthContext.tsx           ← User session (signIn, signUp, signOut, refresh)
+    SiteSettingsContext.tsx  ← Public settings + maintenance mode
+  components/
+    Layout.tsx               ← App shell: sidebar + nav
+    ui/                      ← Atomic UI (shadcn/ui): Button, Input, Card, Dialog…
+  pages/                     ← One file per route (lazy-loaded in App.tsx)
+```
+
+### Auto-generated API client (do not edit manually)
+
+```
+lib/
+  api-spec/openapi.yaml      ← Source of truth for all API types
+  api-client-react/          ← TanStack Query hooks (generated by Orval)
+  api-zod/                   ← Zod schemas (generated by Orval)
 ```
 
 ---
@@ -211,9 +266,13 @@ Interactive API docs: `http://localhost:8080/api/docs` (Swagger UI)
 
 ## Recent significant changes
 
-- 2026-05-19 — **Cleaned dead code:** deleted `artifacts/brand-os/src/lib/nodesExport.ts` (orphaned nodes editor export, no imports). Added comprehensive `DOCUMENTATION.md`.
-- 2026-05-19 — **LTR enforced globally:** `index.html` set `dir="ltr"`, `SiteSettingsContext` hardcoded to LTR, removed `dir="rtl"` from `CampaignList.tsx`.
-- 2026-05-19 — **Deleted TypeScript/Express backend** (`artifacts/api-server`). Ported all features to Python. Project is now single-backend (Python only).
+> Full history → **`CHANGELOG.md`**
+
+- 2026-05-19 — **Architecture refactor:** Added `app/middleware/` (RequestLoggerMiddleware), `app/utils/` (pagination, ownership, ai_errors). Frontend: `src/types/`, `src/lib/constants.ts`, `src/hooks/useDebounce|useLocalStorage|useJobPoller`. Added `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `CHANGELOG.md`.
+- 2026-05-19 — **Security:** Rate limiting (slowapi) + CORS hardening (no more `"*"`).
+- 2026-05-19 — **Cleaned dead code:** deleted orphaned `nodesExport.ts`. Added `DOCUMENTATION.md`.
+- 2026-05-19 — **LTR enforced globally:** `index.html` + `SiteSettingsContext` hardcoded to LTR.
+- 2026-05-19 — **Deleted TypeScript/Express backend** (`artifacts/api-server`). Python only now.
 - 2026-05-18 — **Python backend fully active.** AI resolves via Replit AI Integrations.
 
 ---
