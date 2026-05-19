@@ -1,12 +1,5 @@
 """
 Auth routes — register, login, logout, me.
-
-Extension points:
-  - Add OAuth2 endpoints (GET /auth/google, GET /auth/github).
-  - Add magic link: POST /auth/magic-link → send email, GET /auth/verify?token=...
-  - Add email verification flow.
-  - Add password reset flow.
-  See app/layers/payments.py and EXCLUDED_FEATURES.md for more.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
@@ -22,13 +15,11 @@ from app.schemas import LoginRequest, RegisterRequest, UserResponse
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserResponse)
+@router.post("/register")
 def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     """
     Register a new user account.
-
-    First registered user is automatically promoted to 'admin'.
-    New users receive DEFAULT_USER_CREDITS credits.
+    Returns {user, token}. First registered user is automatically admin.
     """
     existing = db.query(User).filter(User.email == body.email.lower()).first()
     if existing:
@@ -53,12 +44,12 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
 
     token = auth_layer.create_token(user.id, user.email)
     auth_layer.set_cookie(response, token)
-    return UserResponse.from_orm(user)
+    return {"user": UserResponse.from_orm(user).model_dump(), "token": token}
 
 
-@router.post("/login", response_model=UserResponse)
+@router.post("/login")
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    """Authenticate an existing user and set auth cookie."""
+    """Authenticate an existing user. Returns {user, token}."""
     user = db.query(User).filter(User.email == body.email.lower().strip()).first()
     if not user or not auth_layer.verify_password(body.password, user.password_hash):
         raise HTTPException(
@@ -67,7 +58,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
         )
     token = auth_layer.create_token(user.id, user.email)
     auth_layer.set_cookie(response, token)
-    return UserResponse.from_orm(user)
+    return {"user": UserResponse.from_orm(user).model_dump(), "token": token}
 
 
 @router.post("/logout")
@@ -77,7 +68,7 @@ def logout(response: Response):
     return {"ok": True}
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me")
 def me(current_user: User = Depends(get_current_user)):
-    """Return the currently authenticated user's profile."""
-    return UserResponse.from_orm(current_user)
+    """Return the currently authenticated user wrapped in {user}."""
+    return {"user": UserResponse.from_orm(current_user).model_dump()}

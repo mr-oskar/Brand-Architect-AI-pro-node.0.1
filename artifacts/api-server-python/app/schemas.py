@@ -1,8 +1,8 @@
 """
 Pydantic v2 schemas for request validation and response serialization.
 
-Field names match the ACTUAL database schema (verified 2026-05-18).
-Note: 'company_description' and 'website_url' are the real DB column names.
+All response fields use camelCase to match the TypeScript/generated API client.
+All request fields use camelCase to match what the frontend sends.
 """
 from datetime import datetime
 from typing import Any, Optional
@@ -43,10 +43,11 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    name: Optional[str]
+    name: Optional[str] = None
     role: str
+    status: Optional[str] = "active"
     credits: int
-    created_at: Optional[str] = None
+    createdAt: Optional[str] = None
 
     @classmethod
     def from_orm(cls, user: Any) -> "UserResponse":
@@ -55,95 +56,101 @@ class UserResponse(BaseModel):
             email=str(user.email),
             name=user.name,
             role=str(user.role or "user"),
+            status=str(user.status or "active"),
             credits=int(user.credits or 0),
-            created_at=_iso(user.created_at),
+            createdAt=_iso(user.created_at),
         )
+
+
+class AuthResponse(BaseModel):
+    user: UserResponse
+    token: str
 
 
 # ── Brands ────────────────────────────────────────────────────────────────────
 
 class CreateBrandRequest(BaseModel):
-    company_name: str
+    companyName: str
     industry: str
-    description: Optional[str] = None   # maps to company_description
-    website: Optional[str] = None        # maps to website_url
-    logo_url: Optional[str] = None
+    companyDescription: Optional[str] = None
+    websiteUrl: Optional[str] = None
+    logoUrl: Optional[str] = None
 
-    @field_validator("company_name")
+    @field_validator("companyName")
     @classmethod
     def name_not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("company_name is required")
+            raise ValueError("companyName is required")
         return v.strip()
 
 
 class UpdateBrandRequest(BaseModel):
-    company_name: Optional[str] = None
+    companyName: Optional[str] = None
     industry: Optional[str] = None
-    description: Optional[str] = None
-    website: Optional[str] = None
-    logo_url: Optional[str] = None
+    companyDescription: Optional[str] = None
+    websiteUrl: Optional[str] = None
+    logoUrl: Optional[str] = None
     status: Optional[str] = None
-    brand_kit: Optional[dict] = None
+    brandKit: Optional[dict] = None
 
 
 class BrandSummaryResponse(BaseModel):
     id: int
-    company_name: str
+    companyName: str
     industry: str
     description: Optional[str] = None
-    logo_url: Optional[str]
+    logoUrl: Optional[str] = None
     status: str
-    created_at: str
-    updated_at: str
+    createdAt: str
+    updatedAt: str
 
     @classmethod
     def from_orm(cls, b: Any) -> "BrandSummaryResponse":
         return cls(
             id=int(b.id),
-            company_name=str(b.company_name),
+            companyName=str(b.company_name),
             industry=str(b.industry),
             description=b.company_description,
-            logo_url=b.logo_url,
+            logoUrl=b.logo_url,
             status=str(b.status or "active"),
-            created_at=_iso(b.created_at) or "",
-            updated_at=_iso(b.updated_at) or "",
+            createdAt=_iso(b.created_at) or "",
+            updatedAt=_iso(b.updated_at) or "",
         )
 
 
 class BrandDetailResponse(BrandSummaryResponse):
-    user_id: str
-    website: Optional[str] = None
-    brand_kit: Optional[dict] = None
+    userId: str
+    websiteUrl: Optional[str] = None
+    brandKit: Optional[dict] = None
 
     @classmethod
     def from_orm(cls, b: Any) -> "BrandDetailResponse":
         return cls(
             id=int(b.id),
-            user_id=str(b.user_id),
-            company_name=str(b.company_name),
+            userId=str(b.user_id),
+            companyName=str(b.company_name),
             industry=str(b.industry),
             description=b.company_description,
-            website=b.website_url,
-            logo_url=b.logo_url,
+            websiteUrl=b.website_url,
+            logoUrl=b.logo_url,
             status=str(b.status or "active"),
-            brand_kit=b.brand_kit,
-            created_at=_iso(b.created_at) or "",
-            updated_at=_iso(b.updated_at) or "",
+            brandKit=b.brand_kit,
+            createdAt=_iso(b.created_at) or "",
+            updatedAt=_iso(b.updated_at) or "",
         )
 
 
 class GenerateKitRequest(BaseModel):
-    brand_colors: Optional[list[str]] = None
+    brandColors: Optional[list[str]] = None
 
 
 class GenerateCampaignRequest(BaseModel):
     days: int = 7
     platforms: list[str] = ["instagram"]
     brief: Optional[str] = None
-    target_audience: Optional[str] = None
-    campaign_goal: Optional[str] = None
-    reference_images: Optional[list[str]] = None
+    targetAudience: Optional[str] = None
+    campaignGoal: Optional[str] = None
+    referenceImages: Optional[list[str]] = None
 
     @field_validator("days")
     @classmethod
@@ -155,41 +162,41 @@ class GenerateCampaignRequest(BaseModel):
 
 class PostResponse(BaseModel):
     id: int
-    campaign_id: int
+    campaignId: int
     day: int
-    caption: Optional[str]
-    hook: Optional[str]
-    cta: Optional[str]
-    hashtags: Optional[list[str]]
-    image_prompt: Optional[str]
-    image_url: Optional[str]
-    image_history: Optional[list[dict]]
+    caption: Optional[str] = None
+    hook: Optional[str] = None
+    cta: Optional[str] = None
+    hashtags: Optional[list[str]] = None
+    imagePrompt: Optional[str] = None
+    imageUrl: Optional[str] = None
+    imageHistory: Optional[list[dict]] = None
     platform: str
-    scheduled_at: Optional[str]
-    published_at: Optional[str]
-    publish_status: str
-    created_at: str
-    updated_at: str
+    scheduledAt: Optional[str] = None
+    publishedAt: Optional[str] = None
+    publishStatus: str
+    createdAt: str
+    updatedAt: str
 
     @classmethod
     def from_orm(cls, p: Any) -> "PostResponse":
         return cls(
             id=int(p.id),
-            campaign_id=int(p.campaign_id),
+            campaignId=int(p.campaign_id),
             day=int(p.day or 1),
             caption=p.caption,
             hook=p.hook,
             cta=p.cta,
             hashtags=list(p.hashtags or []),
-            image_prompt=p.image_prompt,
-            image_url=p.image_url,
-            image_history=list(p.image_history or []),
+            imagePrompt=p.image_prompt,
+            imageUrl=p.image_url,
+            imageHistory=list(p.image_history or []),
             platform=str(p.platform or "instagram"),
-            scheduled_at=_iso(p.scheduled_at),
-            published_at=_iso(p.published_at),
-            publish_status=str(p.publish_status or "draft"),
-            created_at=_iso(p.created_at) or "",
-            updated_at=_iso(p.updated_at) or "",
+            scheduledAt=_iso(p.scheduled_at),
+            publishedAt=_iso(p.published_at),
+            publishStatus=str(p.publish_status or "draft"),
+            createdAt=_iso(p.created_at) or "",
+            updatedAt=_iso(p.updated_at) or "",
         )
 
 
@@ -198,24 +205,24 @@ class UpdatePostRequest(BaseModel):
     hook: Optional[str] = None
     cta: Optional[str] = None
     hashtags: Optional[list[str]] = None
-    image_prompt: Optional[str] = None
+    imagePrompt: Optional[str] = None
     platform: Optional[str] = None
 
 
 class GeneratePostImageRequest(BaseModel):
-    custom_prompt: Optional[str] = None
+    customPrompt: Optional[str] = None
     size: Optional[str] = "1024x1024"
-    logo_data_url: Optional[str] = None
-    overlay_text: Optional[str] = None
-    brand_name: Optional[str] = None
+    logoDataUrl: Optional[str] = None
+    overlayText: Optional[str] = None
+    brandName: Optional[str] = None
     model: Optional[str] = "pro"
-    reference_images: Optional[list[dict]] = None
+    referenceImages: Optional[list[dict]] = None
 
 
 class GenerateAllImagesRequest(BaseModel):
     size: Optional[str] = "1024x1024"
-    logo_data_url: Optional[str] = None
-    skip_existing: bool = True
+    logoDataUrl: Optional[str] = None
+    skipExisting: bool = True
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

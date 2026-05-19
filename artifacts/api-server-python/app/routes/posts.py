@@ -1,11 +1,5 @@
 """
 Post routes — update, generate images, regenerate content, create variants, long-form content.
-
-Extension points:
-  - Add social media publishing (POST /posts/{id}/publish → Twitter/Instagram API).
-  - Add post scheduling (POST /posts/{id}/schedule).
-  - Add caption translation endpoint.
-  - Add AI caption optimization with A/B result tracking.
 """
 import threading
 from typing import Optional
@@ -40,6 +34,11 @@ from app.services.job_store import job_store
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
+# camelCase → snake_case field map for UpdatePostRequest
+_POST_FIELD_MAP = {
+    "imagePrompt": "image_prompt",
+}
+
 
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
@@ -60,11 +59,11 @@ def update_post(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Update post fields (PATCH — only provided fields are updated)."""
     post, _ = _get_owned_post(post_id, current_user.id, db)
     patch = body.model_dump(exclude_unset=True)
-    for field, value in patch.items():
-        setattr(post, field, value)
+    for camel_field, value in patch.items():
+        db_field = _POST_FIELD_MAP.get(camel_field, camel_field)
+        setattr(post, db_field, value)
     db.commit()
     db.refresh(post)
     return PostResponse.from_orm(post)
@@ -90,10 +89,6 @@ def generate_post_image(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate an AI image for this post and save it.
-    Costs: post.generate-image credits.
-    """
     post, brand = _get_owned_post(post_id, current_user.id, db)
 
     try:
@@ -104,17 +99,15 @@ def generate_post_image(
 
     try:
         size = _resolve_size(body.size)
-        base_prompt = (body.custom_prompt or "").strip() or (post.image_prompt or "")
+        base_prompt = (body.customPrompt or "").strip() or (post.image_prompt or "")
 
-        # Resolve reference images
-        ref_images = body.reference_images or []
+        ref_images = body.referenceImages or []
         valid_refs = [
             r for r in ref_images
             if isinstance(r, dict) and isinstance(r.get("dataUrl"), str)
             and r["dataUrl"].startswith("data:image/")
         ]
 
-        # Enhance @ref placeholders
         if valid_refs:
             import re
             def replace_ref(m):
@@ -130,21 +123,18 @@ def generate_post_image(
             )
             base_prompt += f". You are given {len(valid_refs)} reference image(s): {ref_summary}. Use them as visual guides."
 
-        # Add overlay text / logo instructions
-        if body.overlay_text:
-            base_prompt += f'. Include the following text rendered clearly: "{body.overlay_text}"'
-        logo_url = (body.logo_data_url or "").strip() or None
-        brand_name = (body.brand_name or "").strip() or None
+        if body.overlayText:
+            base_prompt += f'. Include the following text rendered clearly: "{body.overlayText}"'
+        logo_url = (body.logoDataUrl or "").strip() or None
+        brand_name = (body.brandName or "").strip() or None
         logo_placement = _logo_placement(size)
         if logo_url and brand_name:
             base_prompt += f'. The brand logo for "{brand_name}" is provided as reference — incorporate it naturally in the {logo_placement}. Match the logo color scheme.'
         elif brand_name:
             base_prompt += f'. Reserve a clean area in the {logo_placement} for the brand logo to be composited on top.'
 
-        # Enhance prompt
         final_prompt = enhance_prompt(base_prompt, model=body.model or "pro")
 
-        # Generate image
         all_refs = []
         if logo_url:
             all_refs.append(logo_url)
@@ -161,7 +151,6 @@ def generate_post_image(
         object_path = upload_image_bytes(image_bytes, "image/png")
         image_url = storage_path_to_url(object_path)
 
-        # Update image history
         existing_history = post.image_history or []
         new_history = existing_history
         if post.image_url:
@@ -190,7 +179,6 @@ def restore_post_image(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Restore a post image from its history."""
     post, _ = _get_owned_post(post_id, current_user.id, db)
     url = body.get("url")
     if not url:
@@ -221,10 +209,6 @@ def regenerate_post_content(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Regenerate a completely fresh version of this post's text content.
-    Costs: post.regenerate credits.
-    """
     post, brand = _get_owned_post(post_id, current_user.id, db)
 
     try:
@@ -269,11 +253,6 @@ def generate_post_variant_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate an A/B variant of a post with a completely different angle.
-    Does NOT overwrite the original post — returns variant data for the client to use.
-    Costs: post.generate-variant credits.
-    """
     post, brand = _get_owned_post(post_id, current_user.id, db)
     if not brand.brand_kit:
         raise HTTPException(status_code=400, detail="Brand kit not generated yet")
@@ -312,10 +291,6 @@ def generate_post_content(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate long-form content (blog, email, newsletter) based on this post's hook.
-    Costs: post.generate-content credits.
-    """
     post, brand = _get_owned_post(post_id, current_user.id, db)
     if not brand.brand_kit:
         raise HTTPException(status_code=400, detail="Brand kit not generated yet")
@@ -354,10 +329,6 @@ def generate_all_campaign_images(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Start a background job to generate images for all posts in a campaign.
-    Returns a jobId to poll.
-    """
     from app.models import Campaign
 
     campaign = (
@@ -370,7 +341,7 @@ def generate_all_campaign_images(
         raise HTTPException(status_code=404, detail="Campaign not found")
 
     posts_to_process = campaign.posts
-    if body.skip_existing:
+    if body.skipExisting:
         posts_to_process = [p for p in campaign.posts if not p.image_url]
 
     if not posts_to_process:
@@ -388,7 +359,7 @@ def generate_all_campaign_images(
 
     job = job_store.create(total=len(posts_to_process), user_id=current_user.id)
     post_ids = [p.id for p in posts_to_process]
-    logo_url = (body.logo_data_url or "").strip() or None
+    logo_url = (body.logoDataUrl or "").strip() or None
     size = _resolve_size(body.size)
 
     def run_batch():

@@ -1,10 +1,5 @@
 """
 Brands routes — CRUD + AI kit/campaign generation.
-
-Note: DB column names used here:
-  - company_description  (not 'description')
-  - website_url          (not 'website')
-  - campaigns.days       (JSONB — stores the AI days array)
 """
 import threading
 from typing import Optional
@@ -63,11 +58,11 @@ def create_brand(
 ):
     brand = Brand(
         user_id=str(current_user.id),
-        company_name=body.company_name,
-        company_description=body.description,
+        company_name=body.companyName,
+        company_description=body.companyDescription,
         industry=body.industry,
-        website_url=body.website,
-        logo_url=body.logo_url,
+        website_url=body.websiteUrl,
+        logo_url=body.logoUrl,
         status="active",
     )
     db.add(brand)
@@ -95,8 +90,13 @@ def update_brand(
 ):
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
     patch = body.model_dump(exclude_unset=True)
-    # Map API field names to DB column names
-    field_map = {"description": "company_description", "website": "website_url"}
+    field_map = {
+        "companyName": "company_name",
+        "companyDescription": "company_description",
+        "websiteUrl": "website_url",
+        "logoUrl": "logo_url",
+        "brandKit": "brand_kit",
+    }
     for api_field, value in patch.items():
         db_field = field_map.get(api_field, api_field)
         setattr(brand, db_field, value)
@@ -125,10 +125,6 @@ def generate_kit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate a comprehensive AI brand kit for this brand.
-    Costs: brand.generate-kit credits.
-    """
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
 
     charged = 0
@@ -143,7 +139,7 @@ def generate_kit(
             company_name=brand.company_name,
             company_description=brand.company_description or "",
             industry=brand.industry,
-            brand_colors=body.brand_colors,
+            brand_colors=body.brandColors,
         )
         brand.brand_kit = kit
         db.commit()
@@ -163,10 +159,6 @@ def generate_brand_campaign(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate a multi-day social media campaign. Returns a jobId to poll.
-    Poll: GET /api/jobs/{jobId}
-    """
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
     if not brand.brand_kit:
         raise HTTPException(status_code=400, detail="Generate the brand kit first")
@@ -188,7 +180,7 @@ def generate_brand_campaign(
     brief = body.brief
     days = body.days
     platforms = body.platforms
-    reference_images = body.reference_images or []
+    reference_images = body.referenceImages or []
     user_id = str(current_user.id)
 
     def run_generation():
@@ -219,12 +211,11 @@ def generate_brand_campaign(
 
             from app.models import Campaign, Post
 
-            # Store days array as JSONB (actual DB schema)
             campaign = Campaign(
                 brand_id=brand_data["id"],
                 title=campaign_data.get("title", "Campaign"),
                 strategy=campaign_data.get("strategy", ""),
-                days=campaign_data.get("days", []),  # JSONB array
+                days=campaign_data.get("days", []),
             )
             thread_db.add(campaign)
             thread_db.flush()
@@ -270,11 +261,6 @@ def generate_brand_logo_variants(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate black, white, and grayscale variants of the brand logo.
-    Also extracts dominant colors from the logo.
-    Costs: brand.generate-logo-variants credits.
-    """
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
     if not brand.logo_url:
         raise HTTPException(status_code=400, detail="Brand has no logo")
@@ -307,7 +293,7 @@ def generate_brand_logo_variants(
         return {
             "logoVariants": logo_variants,
             "extractedColors": extracted_colors,
-            "brand": BrandDetailResponse.from_orm(brand),
+            "brand": BrandDetailResponse.from_orm(brand).model_dump(),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Logo processing failed: {e}")
@@ -321,11 +307,6 @@ def generate_brand_story_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate or regenerate a compelling brand story.
-    Saves the story inside brand_kit.brandStory.
-    Costs: brand.generate-story credits.
-    """
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
     if not brand.brand_kit:
         raise HTTPException(status_code=400, detail="Generate the brand kit first")
@@ -348,7 +329,7 @@ def generate_brand_story_endpoint(
         brand.brand_kit = updated_kit
         db.commit()
         db.refresh(brand)
-        return {"brandStory": story, "brand": BrandDetailResponse.from_orm(brand)}
+        return {"brandStory": story, "brand": BrandDetailResponse.from_orm(brand).model_dump()}
     except Exception as e:
         credits_layer.refund_credits(str(current_user.id), charged, db)
         _handle_ai_error(e)
@@ -363,10 +344,6 @@ def generate_brand_content(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Generate long-form content (blog, email, newsletter) for this brand.
-    Costs: brand.generate-content credits.
-    """
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
     if not brand.brand_kit:
         raise HTTPException(status_code=400, detail="Generate the brand kit first")
@@ -407,10 +384,6 @@ def get_brand_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Return aggregated stats for this brand:
-    total campaigns, total posts, posts with images, etc.
-    """
     from sqlalchemy import func as sqlfunc
     from app.models import Campaign, Post
 
@@ -451,7 +424,7 @@ def get_brand_stats(
     }
 
 
-# ── AI: Campaign Brief Job (full pipeline with progress) ─────────────────────
+# ── AI: Campaign Brief Job ────────────────────────────────────────────────────
 
 @router.post("/{brand_id}/campaign-brief-job")
 def campaign_brief_job(
@@ -460,12 +433,6 @@ def campaign_brief_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Full campaign generation pipeline with detailed step-by-step progress.
-    Steps: analyze brief → ensure brand kit → generate campaign → save to DB.
-    Returns a jobId immediately. Poll GET /api/jobs/{jobId}.
-    Costs: brand.generate-campaign credits.
-    """
     brand = _get_owned_brand(brand_id, str(current_user.id), db)
 
     brief = (body.get("brief") or "").strip() or None
@@ -501,7 +468,6 @@ def campaign_brief_job(
         try:
             job_store.update(job.id, status="running", progress=0)
 
-            # Step 1: Analyze brief + reference images
             analyzed = None
             if brief or reference_images:
                 analyzed = analyze_brief(
@@ -512,7 +478,6 @@ def campaign_brief_job(
                 )
             job_store.update(job.id, progress=1)
 
-            # Step 2: Ensure brand kit exists
             kit = brand_data["brand_kit"]
             if not kit:
                 kit = generate_brand_kit(
@@ -526,7 +491,6 @@ def campaign_brief_job(
                     thread_db.commit()
             job_store.update(job.id, progress=2)
 
-            # Step 3: Generate campaign content
             campaign_data = generate_campaign(
                 company_name=brand_data["company_name"],
                 company_description=brand_data["description"],
@@ -539,7 +503,6 @@ def campaign_brief_job(
             )
             job_store.update(job.id, progress=3)
 
-            # Step 4: Save campaign to DB
             campaign = Campaign(
                 brand_id=brand_data["id"],
                 title=campaign_data.get("title", "Campaign"),
@@ -567,7 +530,6 @@ def campaign_brief_job(
             thread_db.refresh(campaign)
             job_store.update(job.id, progress=5)
 
-            # Mark brand active
             b = thread_db.query(Brand).filter(Brand.id == brand_data["id"]).first()
             if b:
                 b.status = "active"
@@ -590,6 +552,40 @@ def campaign_brief_job(
 
     threading.Thread(target=run_pipeline, daemon=True).start()
     return {"jobId": job.id, "message": "Campaign pipeline started"}
+
+
+# ── Brand campaigns list ──────────────────────────────────────────────────────
+
+@router.get("/{brand_id}/campaigns")
+def list_brand_campaigns(
+    brand_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    brand = _get_owned_brand(brand_id, str(current_user.id), db)
+    from app.models import Campaign
+    campaigns = (
+        db.query(Campaign)
+        .filter(Campaign.brand_id == brand_id)
+        .order_by(Campaign.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [
+        {
+            "id": c.id,
+            "brandId": c.brand_id,
+            "title": c.title,
+            "strategy": c.strategy,
+            "dayCount": len(c.days) if isinstance(c.days, list) else 0,
+            "createdAt": c.created_at.isoformat() if c.created_at else None,
+            "updatedAt": c.updated_at.isoformat() if c.updated_at else None,
+        }
+        for c in campaigns
+    ]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

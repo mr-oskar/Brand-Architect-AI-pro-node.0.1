@@ -51,9 +51,9 @@ def get_dashboard_summary(
     )
 
     return {
-        "brandCount": brand_count,
-        "campaignCount": campaign_count,
-        "postCount": post_count,
+        "totalBrands": brand_count,
+        "totalCampaigns": campaign_count,
+        "totalPosts": post_count,
         "credits": current_user.credits,
         "recentBrands": [BrandSummaryResponse.from_orm(b).model_dump() for b in recent_brands],
     }
