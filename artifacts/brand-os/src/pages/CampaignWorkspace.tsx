@@ -10,7 +10,7 @@ import {
   Megaphone, Sparkles, Wand2, Copy, CheckCircle2, Download, FileText,
   Mail, Newspaper, ChevronDown, TestTube2, Instagram, Linkedin, Twitter, Facebook,
   ZoomIn, BarChart2, Target, Settings2, Zap, Clock, Eye, Images,
-  Upload, History, Trash2, Plus,
+  Upload, History, Trash2, Plus, Send,
 } from "lucide-react";
 import type { SocialPost } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
