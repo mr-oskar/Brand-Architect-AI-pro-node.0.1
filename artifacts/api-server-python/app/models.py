@@ -111,12 +111,14 @@ class Brand(Base):
       - website_url (not 'website')
       - logo_variants (JSONB — for multiple logo versions)
 
+    Note: user_id is TEXT in the DB (not UUID), matching the Drizzle schema definition.
+
     Extension: Add 'subscription_tier', 'team_id' for multi-tenant support.
     """
     __tablename__ = "brands"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(StrUUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     company_name = Column(Text, nullable=False)
     company_description = Column(Text, nullable=True)
     industry = Column(Text, nullable=False)
