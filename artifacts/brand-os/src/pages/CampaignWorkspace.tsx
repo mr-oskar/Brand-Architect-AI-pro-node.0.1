@@ -142,6 +142,86 @@ async function removeLogoBackground(logoUrl: string): Promise<string> {
 
 // ─── Image Generation Dialog ──────────────────────────────────────────────────
 
+// SVG shape preview that visually represents an aspect ratio
+function SizeShape({ ratio }: { ratio: "square" | "portrait" | "landscape" | "auto" | "custom" }) {
+  if (ratio === "auto") {
+    return (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
+        <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.1" strokeDasharray="3 2.5" />
+        <circle cx="10" cy="10" r="2.5" fill="currentColor" fillOpacity="0.7" />
+      </svg>
+    );
+  }
+  if (ratio === "custom") {
+    return (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
+        <rect x="2" y="2" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.07" strokeDasharray="3 2.5" />
+        <path d="M10 6v8M6 10h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  const map = { square: { w: 14, h: 14 }, portrait: { w: 10, h: 16 }, landscape: { w: 16, h: 10 } };
+  const { w, h } = map[ratio];
+  const rx = (20 - w) / 2, ry = (20 - h) / 2;
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="flex-shrink-0">
+      <rect x={rx} y={ry} width={w} height={h} rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.12" />
+    </svg>
+  );
+}
+
+// Geometric icon that conveys AI processing intensity
+function ModelDot({ level }: { level: "nano" | "mini" | "pro" }) {
+  if (level === "nano") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+        <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.25" fill="currentColor" fillOpacity="0.06" />
+        <circle cx="9" cy="9" r="3" fill="currentColor" fillOpacity="0.5" />
+      </svg>
+    );
+  }
+  if (level === "mini") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+        <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.25" fill="currentColor" fillOpacity="0.06" />
+        <circle cx="9" cy="9" r="4.5" stroke="currentColor" strokeWidth="1" fill="currentColor" fillOpacity="0.12" />
+        <circle cx="9" cy="9" r="2" fill="currentColor" fillOpacity="0.8" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+      <circle cx="9" cy="9" r="7.5" stroke="currentColor" strokeWidth="1.25" fill="currentColor" fillOpacity="0.06" />
+      <circle cx="9" cy="9" r="5" stroke="currentColor" strokeWidth="1" fill="currentColor" fillOpacity="0.1" />
+      <circle cx="9" cy="9" r="2.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+const SIZE_OPTIONS: {
+  id: ImageSize | "custom";
+  label: string;
+  dim: string;
+  ratio: "square" | "portrait" | "landscape" | "auto" | "custom";
+}[] = [
+  { id: "1024x1024", label: "Square",    dim: "1024 × 1024", ratio: "square"    },
+  { id: "1024x1536", label: "Portrait",  dim: "1024 × 1536", ratio: "portrait"  },
+  { id: "1536x1024", label: "Landscape", dim: "1536 × 1024", ratio: "landscape" },
+  { id: "auto",      label: "Auto",      dim: "AI decides",  ratio: "auto"      },
+  { id: "custom",    label: "Custom",    dim: "Enter W × H", ratio: "custom"    },
+];
+
+const MODEL_OPTIONS: {
+  id: "nano" | "mini" | "pro";
+  label: string;
+  tagline: string;
+  desc: string;
+}[] = [
+  { id: "nano", label: "Nano",  tagline: "Fast & direct",         desc: "No prompt enhancement — uses your text as-is" },
+  { id: "mini", label: "Mini",  tagline: "Light enhancement",     desc: "Adds lighting and composition details"         },
+  { id: "pro",  label: "Pro",   tagline: "Maximum quality",       desc: "Full art direction with brand DNA embedded"   },
+];
+
 const ASPECT_PRESETS: { label: string; w: number; h: number }[] = [
   { label: "1:1",  w: 1080, h: 1080 },
   { label: "4:5",  w: 1080, h: 1350 },
@@ -186,8 +266,12 @@ function ImageGenDialog({
   const [refImages, setRefImages] = useState<ReferenceImageItem[]>([]);
   const [progress, setProgress] = useState(0);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const sizeDropRef = useRef<HTMLDivElement | null>(null);
+  const modelDropRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!generating) {
@@ -200,6 +284,20 @@ function ImageGenDialog({
     }, 350);
     return () => clearInterval(interval);
   }, [generating]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (sizeOpen && sizeDropRef.current && !sizeDropRef.current.contains(e.target as Node)) {
+        setSizeOpen(false);
+      }
+      if (modelOpen && modelDropRef.current && !modelDropRef.current.contains(e.target as Node)) {
+        setModelOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [sizeOpen, modelOpen]);
 
   // Lock body scroll, focus the prompt, and trap Escape while dialog is open
   useEffect(() => {
@@ -463,47 +561,127 @@ function ImageGenDialog({
             />
           </div>
 
-          {/* Canvas size + Prompt quality — compact dropdowns */}
+          {/* Canvas size + Prompt quality — custom dropdowns */}
           <div className="grid grid-cols-2 gap-3">
+
+            {/* ── Size dropdown ── */}
             <div>
               <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
                 Canvas Size
               </label>
-              <div className="relative">
-                <select
-                  value={sizeMode}
-                  onChange={(e) => setSizeMode(e.target.value as ImageSize | "custom")}
+              <div className="relative" ref={sizeDropRef}>
+                <button
+                  type="button"
+                  onClick={() => { if (!generating) { setSizeOpen(v => !v); setModelOpen(false); } }}
                   disabled={generating}
-                  className="w-full appearance-none pl-3 pr-8 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer disabled:opacity-60 transition-colors"
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all",
+                    sizeOpen
+                      ? "border-primary/50 bg-primary/5 text-foreground"
+                      : "border-input bg-background text-foreground hover:border-border",
+                    generating && "opacity-50 cursor-not-allowed"
+                  )}
                 >
-                  <option value="1024x1024">Square — 1:1</option>
-                  <option value="1024x1536">Story — 2:3 Portrait</option>
-                  <option value="1536x1024">Wide — 3:2 Landscape</option>
-                  <option value="auto">Auto — AI picks</option>
-                  <option value="custom">Custom dimensions</option>
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  {(() => {
+                    const opt = SIZE_OPTIONS.find(o => o.id === sizeMode);
+                    return (
+                      <>
+                        <span className="text-muted-foreground"><SizeShape ratio={opt?.ratio ?? "square"} /></span>
+                        <span className="flex-1 font-medium">{opt?.label ?? "Square"}</span>
+                        <span className="text-xs text-muted-foreground">{opt?.dim ?? ""}</span>
+                      </>
+                    );
+                  })()}
+                  <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform duration-150 flex-shrink-0", sizeOpen && "rotate-180")} />
+                </button>
+
+                {sizeOpen && (
+                  <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 bg-[#0c0c14] border border-border rounded-xl shadow-2xl overflow-hidden py-1">
+                    {SIZE_OPTIONS.map(opt => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => { setSizeMode(opt.id); setSizeOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors",
+                          sizeMode === opt.id
+                            ? "bg-primary/10 text-primary"
+                            : "text-foreground hover:bg-white/[0.04]"
+                        )}
+                      >
+                        <span className={sizeMode === opt.id ? "text-primary" : "text-muted-foreground"}>
+                          <SizeShape ratio={opt.ratio} />
+                        </span>
+                        <span className="flex-1 text-left font-medium">{opt.label}</span>
+                        <span className="text-xs text-muted-foreground">{opt.dim}</span>
+                        {sizeMode === opt.id && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
+            {/* ── Model dropdown ── */}
             <div>
               <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
                 Prompt Quality
               </label>
-              <div className="relative">
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value as "nano" | "mini" | "pro")}
+              <div className="relative" ref={modelDropRef}>
+                <button
+                  type="button"
+                  onClick={() => { if (!generating) { setModelOpen(v => !v); setSizeOpen(false); } }}
                   disabled={generating}
-                  className="w-full appearance-none pl-3 pr-8 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer disabled:opacity-60 transition-colors"
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all",
+                    modelOpen
+                      ? "border-primary/50 bg-primary/5 text-foreground"
+                      : "border-input bg-background text-foreground hover:border-border",
+                    generating && "opacity-50 cursor-not-allowed"
+                  )}
                 >
-                  <option value="nano">⚡ Nano — Fast, direct</option>
-                  <option value="mini">✨ Mini — Light enhance</option>
-                  <option value="pro">🎨 Pro — Best quality</option>
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  {(() => {
+                    const opt = MODEL_OPTIONS.find(o => o.id === model);
+                    return (
+                      <>
+                        <span className="text-muted-foreground"><ModelDot level={model} /></span>
+                        <span className="flex-1 font-medium">{opt?.label ?? "Pro"}</span>
+                        <span className="text-xs text-muted-foreground">{opt?.tagline ?? ""}</span>
+                      </>
+                    );
+                  })()}
+                  <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform duration-150 flex-shrink-0", modelOpen && "rotate-180")} />
+                </button>
+
+                {modelOpen && (
+                  <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 bg-[#0c0c14] border border-border rounded-xl shadow-2xl overflow-hidden py-1">
+                    {MODEL_OPTIONS.map(opt => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => { setModel(opt.id); setModelOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors",
+                          model === opt.id
+                            ? "bg-primary/10 text-primary"
+                            : "text-foreground hover:bg-white/[0.04]"
+                        )}
+                      >
+                        <span className={model === opt.id ? "text-primary" : "text-muted-foreground"}>
+                          <ModelDot level={opt.id} />
+                        </span>
+                        <div className="flex-1 text-left">
+                          <div className="font-medium">{opt.label}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</div>
+                        </div>
+                        {model === opt.id && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
+
           </div>
 
           {/* Custom dimensions panel */}
