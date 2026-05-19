@@ -14,7 +14,7 @@ export default function CampaignList() {
   });
 
   return (
-    <div className="px-6 py-8 max-w-4xl mx-auto space-y-7" dir="rtl">
+    <div className="px-6 py-8 max-w-4xl mx-auto space-y-7">
 
       {/* Header */}
       <div className="flex items-center gap-3">

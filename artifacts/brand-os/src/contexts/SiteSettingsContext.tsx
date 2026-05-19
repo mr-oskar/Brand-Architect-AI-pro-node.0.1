@@ -18,7 +18,7 @@ const FALLBACK: SiteSettings = {
   siteName: "Brand Architect AI Pro",
   tagline: "AI Brand & Marketing OS",
   primaryColor: "#7c3aed",
-  defaultLanguage: "ar",
+  defaultLanguage: "en",
   features: { imageGeneration: true, socialPublishing: true, analytics: true, templates: true },
   maintenance: { enabled: false, message: "" },
 };
@@ -69,7 +69,7 @@ function applyToDOM(s: SiteSettings) {
     const html = document.documentElement;
     const lang = s.defaultLanguage || "ar";
     html.setAttribute("lang", lang);
-    html.setAttribute("dir", lang === "ar" ? "rtl" : "ltr");
+    html.setAttribute("dir", "ltr");
     const hsl = hexToHsl(s.primaryColor);
     if (hsl) {
       html.style.setProperty("--primary", hsl);
