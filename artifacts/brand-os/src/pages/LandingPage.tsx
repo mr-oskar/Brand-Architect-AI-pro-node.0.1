@@ -76,21 +76,125 @@ const DEFAULTS: LandingConfig = {
     "Brand Architect AI Pro generates complete brand identities, multi-day social media campaigns, and stunning visuals — all in one workspace, isolated per account.",
   primaryCtaLabel: "Start Building for Free",
   secondaryCtaLabel: "Sign In to Your Workspace",
-  showStats: false,
-  stats: [],
+  showStats: true,
+  stats: [
+    { value: "10x", label: "Faster branding" },
+    { value: "500+", label: "Brands created" },
+    { value: "50+", label: "Industries covered" },
+    { value: "99%", label: "Satisfaction rate" },
+  ],
   showProjects: true,
   projectsHeading: "Trusted by ambitious teams",
-  projects: [],
+  projects: [
+    { name: "Acme Studio" },
+    { name: "Nova Agency" },
+    { name: "Pixel Labs" },
+    { name: "Drift Co." },
+    { name: "Spark Media" },
+    { name: "Bloom Brands" },
+  ],
   showHighlights: true,
-  highlights: [],
+  highlights: [
+    "AI-generated brand kits",
+    "Multi-platform campaigns",
+    "Stunning visual content",
+    "One-click logo variants",
+    "Smart brand storytelling",
+    "Full campaign scheduler",
+  ],
   featuresHeading: "Everything You Need to Build a Brand",
   featuresSubheading:
     "From identity to content to visuals — AI handles the heavy lifting so you can focus on growth.",
-  features: [],
+  features: [
+    {
+      icon: "Sparkles",
+      title: "AI Brand Kit",
+      description:
+        "Generate a complete brand identity — colors, typography, tone of voice, and brand story — in seconds.",
+    },
+    {
+      icon: "LayoutTemplate",
+      title: "Campaign Builder",
+      description:
+        "Create multi-day social media campaigns with tailored posts, hooks, and CTAs for every platform.",
+    },
+    {
+      icon: "Image",
+      title: "Visual Generation",
+      description:
+        "Produce on-brand images and visuals with gpt-image-1, guided by your brand's unique style.",
+    },
+    {
+      icon: "Zap",
+      title: "Instant Logo Variants",
+      description:
+        "Auto-generate black, white, and grayscale logo versions with one click — ready for any context.",
+    },
+    {
+      icon: "BarChart3",
+      title: "Brand Analytics",
+      description:
+        "Track campaign performance, post engagement, and brand consistency across all your content.",
+    },
+    {
+      icon: "CalendarDays",
+      title: "Content Scheduler",
+      description:
+        "Plan and schedule your entire content calendar from a single workspace, post by post.",
+    },
+  ],
   showPricing: true,
   pricingHeading: "Simple, transparent pricing",
   pricingSubheading: "Start free. Upgrade as you grow.",
-  pricingPlans: [],
+  pricingPlans: [
+    {
+      name: "Starter",
+      price: "$0",
+      period: "/ month",
+      description: "Perfect for solo creators getting started.",
+      features: [
+        "1 brand workspace",
+        "5 AI brand kit generations",
+        "10 campaign posts / month",
+        "Basic logo variants",
+        "Community support",
+      ],
+      ctaLabel: "Get started free",
+      highlighted: false,
+    },
+    {
+      name: "Pro",
+      price: "$29",
+      period: "/ month",
+      description: "Everything you need to grow your brand.",
+      features: [
+        "5 brand workspaces",
+        "Unlimited brand kit generations",
+        "Unlimited campaign posts",
+        "AI image generation",
+        "Brand story & long-form content",
+        "Priority support",
+      ],
+      ctaLabel: "Start Pro trial",
+      highlighted: true,
+    },
+    {
+      name: "Agency",
+      price: "$99",
+      period: "/ month",
+      description: "Built for teams managing multiple brands.",
+      features: [
+        "Unlimited brand workspaces",
+        "Team collaboration",
+        "White-label exports",
+        "Advanced analytics",
+        "Custom AI models",
+        "Dedicated support",
+      ],
+      ctaLabel: "Contact sales",
+      highlighted: false,
+    },
+  ],
   ctaHeading: "Ready to Build Your Brand?",
   ctaSubheading:
     "Create your account and start generating your brand identity in minutes.",
