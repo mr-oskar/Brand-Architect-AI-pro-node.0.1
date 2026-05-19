@@ -128,10 +128,22 @@ export default function CampaignBriefPage() {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
+    let consecutiveErrors = 0;
     pollRef.current = setInterval(async () => {
       try {
         const resp = await fetch(`${BASE}/api/jobs/${jobId}`, { headers, credentials: "include" });
-        if (!resp.ok) return;
+        if (!resp.ok) {
+          // 404 most likely means the server restarted and lost the in-memory job.
+          // Stop polling after 5 consecutive failures to avoid an infinite loop.
+          consecutiveErrors++;
+          if (consecutiveErrors >= 5) {
+            clearInterval(pollRef.current!);
+            setPhase("input");
+            setError("Lost connection to the background job (server may have restarted). Please try again.");
+          }
+          return;
+        }
+        consecutiveErrors = 0;
         const job = await resp.json() as {
           status: string;
           progress: number;
@@ -153,7 +165,7 @@ export default function CampaignBriefPage() {
           setPhase("input");
           setError(job.error ?? "Campaign generation failed");
         }
-      } catch { /* ignore transient */ }
+      } catch { /* ignore transient network errors */ }
     }, 1500);
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };

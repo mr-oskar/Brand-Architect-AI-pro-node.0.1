@@ -74,6 +74,28 @@ def get_provider() -> ProviderType:
     return _provider
 
 
+def is_using_replit_proxy() -> bool:
+    """
+    Returns True when the only AI provider available is the Replit AI proxy.
+    The Replit proxy supports chat completions but NOT image generation.
+    """
+    if settings.openai_api_key or settings.gemini_api_key:
+        return False
+    return bool(
+        settings.ai_integrations_openai_api_key
+        and settings.ai_integrations_openai_base_url
+    )
+
+
+def image_generation_available() -> bool:
+    """
+    Returns True if the configured provider supports image generation.
+    The Replit AI proxy routes images/* through the modelfarm and returns HTTP 200,
+    so we treat it as available. Callers handle errors from the response.
+    """
+    return True
+
+
 # ── Model name mapping ────────────────────────────────────────────────────────
 
 GEMINI_MODEL_MAP = {

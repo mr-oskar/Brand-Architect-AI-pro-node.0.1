@@ -14,6 +14,7 @@ from app.database import get_db
 from app.deps import get_current_user, get_optional_user
 from app.layers.credits import DEFAULT_CREDIT_COSTS, DEFAULT_USER_CREDITS
 from app.models import AppSetting, User
+from app.services.ai.client import image_generation_available
 from app.services.image_storage import get_stored_image
 from app.services.job_store import job_store
 
@@ -74,6 +75,7 @@ def get_public_settings(db: Session = Depends(get_db)):
         "tagline": site.get("tagline", "AI Brand & Marketing OS"),
         "primaryColor": site.get("primaryColor", "#7c3aed"),
         "defaultLanguage": site.get("defaultLanguage", "ar"),
+        "imageGenerationAvailable": image_generation_available(),
         "features": features,
         "maintenance": maintenance,
     }

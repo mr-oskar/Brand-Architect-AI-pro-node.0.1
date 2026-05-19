@@ -15,8 +15,14 @@ import {
 import type { SocialPost } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { extractApiError, notifyError } from "@/lib/apiError";
+import { getAuthToken } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1398,6 +1404,15 @@ export default function CampaignWorkspace() {
   const [publishingPostId, setPublishingPostId] = useState<number | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ generated: number; total: number } | null>(null);
+  const [imageGenAvailable, setImageGenAvailable] = useState<boolean | null>(null);
+
+  // Check whether image generation is available on this deployment
+  useEffect(() => {
+    fetch(`${BASE}/api/public-settings`)
+      .then((r) => r.json())
+      .then((d) => setImageGenAvailable((d as { imageGenerationAvailable?: boolean }).imageGenerationAvailable ?? true))
+      .catch(() => setImageGenAvailable(null));
+  }, []);
 
   async function handlePublishNow(postId: number) {
     setPublishingPostId(postId);
@@ -1452,21 +1467,72 @@ export default function CampaignWorkspace() {
 
   async function handleBulkGenerateImages() {
     if (!campaign?.posts) return;
+    if (imageGenAvailable === false) {
+      notifyError(
+        "Image generation not available",
+        "Add an OPENAI_API_KEY in Replit Secrets to enable AI image generation."
+      );
+      return;
+    }
     setBulkGenerating(true);
     const total = (campaign.posts as SocialPost[]).filter((p) => !p.imageUrl).length;
     setBulkProgress({ generated: 0, total });
     try {
-      const res = await fetch(`${BASE}/api/campaigns/${campaignId}/generate-all-images`, {
+      const res = await fetch(`${BASE}/api/posts/campaigns/${campaignId}/generate-all-images`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        credentials: "include",
         body: JSON.stringify({ skipExisting: true }),
       });
-      const data = await res.json() as { generated: number; total: number };
-      setBulkProgress({ generated: data.generated, total: data.total });
-      queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
-    } finally {
+      if (!res.ok) {
+        throw new Error(await extractApiError(res, "Image generation failed"));
+      }
+      const data = await res.json() as { jobId: string | null; message?: string };
+      if (!data.jobId) {
+        // No posts to process
+        setBulkGenerating(false);
+        setBulkProgress(null);
+        return;
+      }
+      // Poll the background job
+      let consecutiveMisses = 0;
+      const poll = setInterval(async () => {
+        try {
+          const jr = await fetch(`${BASE}/api/jobs/${data.jobId}`, {
+            headers: authHeaders(),
+            credentials: "include",
+          });
+          if (!jr.ok) {
+            consecutiveMisses++;
+            if (consecutiveMisses >= 5) {
+              clearInterval(poll);
+              setBulkGenerating(false);
+              setBulkProgress(null);
+              notifyError("Image generation interrupted", "The server restarted mid-generation. Please try again.");
+            }
+            return;
+          }
+          consecutiveMisses = 0;
+          const job = await jr.json() as { status: string; progress: number; total: number; error?: string };
+          setBulkProgress({ generated: job.progress, total: job.total || total });
+          if (job.status === "done") {
+            clearInterval(poll);
+            setBulkGenerating(false);
+            queryClient.invalidateQueries({ queryKey: getGetCampaignQueryKey(campaignId) });
+            setTimeout(() => setBulkProgress(null), 4000);
+          }
+          if (job.status === "failed") {
+            clearInterval(poll);
+            setBulkGenerating(false);
+            setBulkProgress(null);
+            notifyError("Image generation failed", job.error ?? "Unknown error");
+          }
+        } catch { /* ignore transient */ }
+      }, 2000);
+    } catch (err) {
       setBulkGenerating(false);
-      setTimeout(() => setBulkProgress(null), 4000);
+      setBulkProgress(null);
+      notifyError("Image generation failed", err);
     }
   }
 
