@@ -139,7 +139,7 @@ export default function BrandKit() {
       });
       if (!res.ok) throw new Error(await extractApiError(res, "Failed to generate brand book"));
       await res.json();
-      window.location.href = `/brands/${brandId}/book`;
+      navigate(`/brands/${brandId}/book`);
     } catch (err) {
       setBookError(err instanceof Error ? err.message : "Failed to generate brand book");
       notifyError("Brand book generation failed", err);

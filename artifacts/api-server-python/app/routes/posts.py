@@ -418,8 +418,14 @@ def generate_all_campaign_images(
                     obj_path = upload_image_bytes(img_bytes, "image/png")
                     p.image_url = storage_path_to_url(obj_path)
                     thread_db.commit()
-                except Exception:
-                    pass
+                except Exception as img_err:
+                    # Log individual image failures but continue the batch —
+                    # other posts should still get their images generated.
+                    import logging as _log
+                    _log.getLogger("brand-os").warning(
+                        "Batch image gen failed for post %s: %s", pid, img_err
+                    )
+                    thread_db.rollback()
                 job_store.update(job.id, progress=idx + 1)
             job_store.update(job.id, status="done", progress=len(post_ids))
         except Exception as e:

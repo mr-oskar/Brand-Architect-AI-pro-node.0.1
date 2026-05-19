@@ -38,7 +38,7 @@ function usePrefetchCoreData() {
 function SidebarBrandsList({ onNavigate }: { onNavigate: () => void }) {
   const [location] = useLocation();
   const { data: brands, isLoading } = useListBrands({
-    query: { staleTime: 1000 * 60 * 2 },
+    query: { staleTime: 1000 * 60 * 2, queryKey: getListBrandsQueryKey() },
   });
 
   const brandList = Array.isArray(brands) ? brands : [];

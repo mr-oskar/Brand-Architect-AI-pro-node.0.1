@@ -1,8 +1,11 @@
 """
 Brands routes — CRUD + AI kit/campaign generation.
 """
+import logging
 import threading
 from typing import Optional
+
+logger = logging.getLogger("brand-os")
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -246,6 +249,11 @@ def generate_brand_campaign(
         except Exception as e:
             thread_db.rollback()
             job_store.update(job.id, status="failed", error=str(e))
+            # Refund credits — the generation failed so the user should not be charged
+            try:
+                credits_layer.refund_credits(user_id, charged, thread_db)
+            except Exception:
+                logger.exception("Failed to refund credits for failed campaign generation (job %s)", job.id)
         finally:
             thread_db.close()
 

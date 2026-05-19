@@ -165,7 +165,14 @@ export default function CampaignBriefPage() {
           setPhase("input");
           setError(job.error ?? "Campaign generation failed");
         }
-      } catch { /* ignore transient network errors */ }
+      } catch {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 5) {
+          clearInterval(pollRef.current!);
+          setPhase("input");
+          setError("Lost connection to the background job (server may have restarted). Please try again.");
+        }
+      }
     }, 1500);
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };

@@ -3,12 +3,9 @@ import { useState, useEffect } from "react";
 import { useGetBrand, useUpdateBrand, getGetBrandQueryKey, getListBrandsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Building2, Globe, Loader2, Check } from "lucide-react";
+import { notifyError, notifySuccess } from "@/lib/apiError";
+import { INDUSTRIES } from "@/lib/constants";
 
-const industries = [
-  "Technology", "SaaS", "E-commerce", "Fashion", "Luxury", "Health & Fitness",
-  "Food & Beverage", "Finance", "Legal", "Real Estate", "Education", "Media",
-  "Travel", "Beauty", "Consulting", "Non-profit", "Manufacturing", "Other",
-];
 
 export default function BrandEdit() {
   const params = useParams<{ id: string }>();
@@ -42,19 +39,24 @@ export default function BrandEdit() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    await updateBrand.mutateAsync({
-      id: brandId,
-      data: {
-        companyName: form.companyName,
-        companyDescription: form.companyDescription,
-        industry: form.industry,
-        websiteUrl: form.websiteUrl || null,
-      },
-    });
-    queryClient.invalidateQueries({ queryKey: getGetBrandQueryKey(brandId) });
-    queryClient.invalidateQueries({ queryKey: getListBrandsQueryKey() });
-    setSaved(true);
-    setTimeout(() => navigate(`/brands/${brandId}`), 1200);
+    try {
+      await updateBrand.mutateAsync({
+        id: brandId,
+        data: {
+          companyName: form.companyName,
+          companyDescription: form.companyDescription,
+          industry: form.industry,
+          websiteUrl: form.websiteUrl || null,
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: getGetBrandQueryKey(brandId) });
+      queryClient.invalidateQueries({ queryKey: getListBrandsQueryKey() });
+      notifySuccess("Brand saved successfully");
+      setSaved(true);
+      setTimeout(() => navigate(`/brands/${brandId}`), 1200);
+    } catch (err) {
+      notifyError("Failed to save brand", err);
+    }
   }
 
   if (isLoading) {
@@ -111,7 +113,7 @@ export default function BrandEdit() {
             required
           >
             <option value="">Select industry...</option>
-            {industries.map((ind) => (
+            {INDUSTRIES.map((ind) => (
               <option key={ind} value={ind}>{ind}</option>
             ))}
           </select>

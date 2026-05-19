@@ -107,11 +107,23 @@ def list_users(
     total = q.count()
     users = q.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
+    # Single aggregation query — avoids N+1 (one DB round-trip for all brand counts)
+    user_ids = [str(u.id) for u in users]
+    brand_counts: dict[str, int] = {}
+    if user_ids:
+        rows = (
+            db.query(Brand.user_id, func.count(Brand.id))
+            .filter(Brand.user_id.in_(user_ids))
+            .group_by(Brand.user_id)
+            .all()
+        )
+        brand_counts = {uid: cnt for uid, cnt in rows}
+
     return {
         "users": [
             {
                 **UserResponse.from_orm(u).model_dump(),
-                "brandCount": db.query(Brand).filter(Brand.user_id == str(u.id)).count(),
+                "brandCount": brand_counts.get(str(u.id), 0),
             }
             for u in users
         ],
@@ -242,6 +254,16 @@ def get_all_settings(
     return {r.key: r.value for r in rows}
 
 
+ALLOWED_SETTING_KEYS = frozenset({
+    "site",
+    "features",
+    "maintenance",
+    "creditCosts",
+    "creditPackages",
+    "defaultUserCredits",
+})
+
+
 @router.patch("/settings")
 def update_setting(
     body: UpdateSettingsRequest,
@@ -251,9 +273,18 @@ def update_setting(
     """
     Create or update a single settings key.
 
+    Only known keys (defined in ALLOWED_SETTING_KEYS) are accepted to prevent
+    arbitrary data from being stored in app_settings.
+
     After updating creditCosts or defaultUserCredits, the credits cache is
     invalidated automatically so new costs take effect within 30 seconds.
     """
+    if body.key not in ALLOWED_SETTING_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown settings key '{body.key}'. Allowed: {sorted(ALLOWED_SETTING_KEYS)}",
+        )
+
     setting = db.query(AppSetting).filter(AppSetting.key == body.key).first()
     if setting:
         setting.value = body.value

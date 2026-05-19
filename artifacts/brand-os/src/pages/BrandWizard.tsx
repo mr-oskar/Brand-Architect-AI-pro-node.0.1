@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractColorsFromDataUrl } from "@/lib/colorExtractor";
+import { INDUSTRIES, TONE_OPTIONS } from "@/lib/constants";
 
 const steps = [
   { id: 1, label: "Company Info" },
@@ -17,20 +18,6 @@ const steps = [
   { id: 5, label: "Generate" },
 ];
 
-const industries = [
-  "Technology", "SaaS", "E-commerce", "Fashion", "Luxury", "Health & Fitness",
-  "Food & Beverage", "Finance", "Legal", "Real Estate", "Education", "Media",
-  "Travel", "Beauty", "Consulting", "Non-profit", "Manufacturing", "Other",
-];
-
-const toneOptions = [
-  { value: "professional", label: "Professional", desc: "Formal, authoritative, trustworthy" },
-  { value: "friendly", label: "Friendly", desc: "Warm, approachable, conversational" },
-  { value: "bold", label: "Bold", desc: "Confident, direct, impactful" },
-  { value: "playful", label: "Playful", desc: "Fun, energetic, creative" },
-  { value: "minimalist", label: "Minimalist", desc: "Clean, refined, understated" },
-  { value: "luxury", label: "Luxury", desc: "Premium, exclusive, sophisticated" },
-];
 
 export default function BrandWizard() {
   const [, navigate] = useLocation();
@@ -104,9 +91,15 @@ export default function BrandWizard() {
         setForm((f) => ({ ...f, logoUrl: outputUrl }));
 
         setExtractingColors(true);
-        const colors = await extractColorsFromDataUrl(outputUrl, 6);
-        setExtractedColors(colors);
-        setExtractingColors(false);
+        try {
+          const colors = await extractColorsFromDataUrl(outputUrl, 6);
+          setExtractedColors(colors);
+        } catch (colorErr) {
+          console.warn("Color extraction failed:", colorErr);
+          setExtractedColors([]);
+        } finally {
+          setExtractingColors(false);
+        }
       };
       img.src = result;
     };
@@ -246,7 +239,7 @@ export default function BrandWizard() {
                   onChange={(e) => update("industry", e.target.value)}
                 >
                   <option value="">Select industry...</option>
-                  {industries.map((ind) => (
+                  {INDUSTRIES.map((ind) => (
                     <option key={ind} value={ind}>{ind}</option>
                   ))}
                 </select>
@@ -315,7 +308,7 @@ export default function BrandWizard() {
                   </span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {toneOptions.map((tone) => (
+                  {TONE_OPTIONS.map((tone) => (
                     <button
                       key={tone.value}
                       type="button"

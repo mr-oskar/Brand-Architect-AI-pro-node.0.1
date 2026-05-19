@@ -20,6 +20,7 @@ const CampaignList = lazy(() => import("@/pages/CampaignList"));
 const CampaignBriefPage = lazy(() => import("@/pages/CampaignBriefPage"));
 const CampaignWorkspace = lazy(() => import("@/pages/CampaignWorkspace"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+const ComingSoon = lazy(() => import("@/pages/ComingSoon"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const SignIn = lazy(() => import("@/pages/SignIn"));
 const SignUp = lazy(() => import("@/pages/SignUp"));
@@ -81,8 +82,23 @@ function ProtectedAppShell() {
             <Route path="/brands/:id/edit" component={BrandEdit} />
             <Route path="/brands/:id/campaigns/new" component={CampaignBriefPage} />
             <Route path="/brands/:id/campaigns" component={CampaignList} />
+            <Route path="/brands/:id/design">
+              {() => <ComingSoon title="Design Studio" />}
+            </Route>
+            <Route path="/brands/:id/book">
+              {() => <ComingSoon title="Brand Book" />}
+            </Route>
             <Route path="/brands/:id" component={BrandKit} />
             <Route path="/campaigns/:id" component={CampaignWorkspace} />
+            <Route path="/assets">
+              {() => <ComingSoon title="Asset Library" />}
+            </Route>
+            <Route path="/templates">
+              {() => <ComingSoon title="Templates" />}
+            </Route>
+            <Route path="/calendar">
+              {() => <ComingSoon title="Content Calendar" />}
+            </Route>
             <Route component={NotFound} />
           </Switch>
         </Suspense>

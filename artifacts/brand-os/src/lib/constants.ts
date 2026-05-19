@@ -34,27 +34,41 @@ export const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 /** Accepted logo MIME types. */
 export const ACCEPTED_LOGO_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
 
-/** Industries shown in the brand creation wizard. */
+/** Industries shown in the brand creation wizard and edit form. */
 export const INDUSTRIES = [
   "Technology",
+  "SaaS",
   "E-commerce & Retail",
-  "Health & Wellness",
-  "Finance & Fintech",
-  "Education & EdTech",
-  "Food & Beverage",
-  "Travel & Hospitality",
   "Fashion & Apparel",
+  "Luxury",
+  "Health & Wellness",
+  "Food & Beverage",
+  "Finance & Fintech",
+  "Legal",
   "Real Estate",
+  "Education & EdTech",
   "Media & Entertainment",
-  "Professional Services",
-  "Non-profit",
-  "Sports & Fitness",
+  "Travel & Hospitality",
   "Beauty & Cosmetics",
+  "Consulting & Professional Services",
+  "Non-profit",
+  "Manufacturing",
+  "Sports & Fitness",
   "Automotive",
   "Other",
 ] as const;
 
 export type Industry = (typeof INDUSTRIES)[number];
+
+/** Tone-of-voice options for the brand creation wizard. */
+export const TONE_OPTIONS = [
+  { value: "professional", label: "Professional", desc: "Formal, authoritative, trustworthy" },
+  { value: "friendly",     label: "Friendly",     desc: "Warm, approachable, conversational" },
+  { value: "bold",         label: "Bold",         desc: "Confident, direct, impactful" },
+  { value: "playful",      label: "Playful",      desc: "Fun, energetic, creative" },
+  { value: "minimalist",   label: "Minimalist",   desc: "Clean, refined, understated" },
+  { value: "luxury",       label: "Luxury",       desc: "Premium, exclusive, sophisticated" },
+] as const;
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
 

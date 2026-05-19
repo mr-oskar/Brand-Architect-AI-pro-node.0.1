@@ -112,7 +112,7 @@ def change_password(
     if len(new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
     if not auth_layer.verify_password(current_password, current_user.password_hash):
-        raise HTTPException(status_code=401, detail="Current password is incorrect")
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     current_user.password_hash = auth_layer.hash_password(new_password)
     db.commit()

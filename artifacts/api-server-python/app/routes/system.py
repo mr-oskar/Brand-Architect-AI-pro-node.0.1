@@ -138,10 +138,13 @@ def serve_image(object_id: str):
 # ── Credit costs (public) ─────────────────────────────────────────────────────
 
 @router.get("/credit-costs")
-def get_credit_costs(db: Session = Depends(get_db)):
+def get_credit_costs(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """
     Return the current credit costs per action.
-    Useful for displaying cost info in the UI before triggering operations.
+    Requires authentication — prevents leaking internal pricing to anonymous visitors.
     """
     rows = db.query(AppSetting).filter(AppSetting.key == "creditCosts").all()
     custom = (rows[0].value or {}) if rows else {}
