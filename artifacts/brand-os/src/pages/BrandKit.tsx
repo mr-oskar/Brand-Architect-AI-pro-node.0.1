@@ -66,6 +66,40 @@ function ColorSwatch({ color, label }: { color: string; label: string }) {
   );
 }
 
+function ColorSwatchLarge({ color, label }: { color: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(color).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+  const isLight = (() => {
+    const hex = color.replace("#", "");
+    if (hex.length < 6) return true;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 140;
+  })();
+  return (
+    <div
+      className="relative rounded-xl overflow-hidden cursor-pointer group border border-black/10 dark:border-white/10"
+      style={{ backgroundColor: color }}
+      onClick={copy}
+    >
+      <div className="h-20" />
+      <div className="px-2.5 py-2" style={{ backgroundColor: `${color}cc`, backdropFilter: "blur(4px)" }}>
+        <p className={cn("text-[10px] font-bold capitalize truncate", isLight ? "text-black/70" : "text-white/80")}>{label}</p>
+        <p className={cn("text-[10px] font-mono flex items-center gap-1", isLight ? "text-black/60" : "text-white/60")}>
+          {copied ? <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" /> : <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />}
+          {color.toUpperCase()}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const styleLabels: Record<string, { label: string; className: string }> = {
   tech: { label: "Tech", className: "bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300" },
   luxury: { label: "Luxury", className: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300" },
@@ -834,10 +868,10 @@ export default function BrandKit() {
   const style = styleLabels[kit?.visualStyle ?? "minimal"] ?? styleLabels.minimal;
 
   const tabs = [
-    { id: "identity" as const, label: "Visual Identity", icon: Palette },
-    { id: "content" as const, label: "Content & Voice", icon: MessageSquare },
-    { id: "strategy" as const, label: "Market Strategy", icon: Target },
-    { id: "story" as const, label: "Brand Story", icon: BookOpen },
+    { id: "identity" as const, label: "Visual Identity", icon: Palette, step: "01" },
+    { id: "content" as const, label: "Content & Voice", icon: MessageSquare, step: "02" },
+    { id: "strategy" as const, label: "Market Strategy", icon: Target, step: "03" },
+    { id: "story" as const, label: "Brand Story", icon: BookOpen, step: "04" },
   ];
 
   return (
@@ -1062,43 +1096,70 @@ export default function BrandKit() {
         </div>
       ) : (
         <>
-          {/* Stats strip */}
-          {stats && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: "Campaigns", value: stats.totalCampaigns, icon: Megaphone },
-                { label: "Posts Created", value: stats.totalPosts, icon: FileText },
-                { label: "Images Generated", value: (stats as unknown as Record<string, unknown>).postsWithImages as number ?? 0, icon: ImageIcon },
-                { label: "Brand Health", value: "94/100", icon: Star },
-              ].map((s) => (
-                <div key={s.label} className="rounded-xl border border-card-border bg-card p-4 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <s.icon className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-foreground">{s.value}</p>
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
-                  </div>
+          {/* Brand overview banner */}
+          <div
+            className="rounded-2xl p-5 flex flex-col sm:flex-row gap-5 items-start sm:items-center justify-between overflow-hidden relative"
+            style={{ background: `linear-gradient(135deg, ${kit.colorPalette?.primary ?? "#7c3aed"}22 0%, ${kit.colorPalette?.secondary ?? "#8B5CF6"}11 100%)`, borderColor: `${kit.colorPalette?.primary ?? "#7c3aed"}33`, borderWidth: 1, borderStyle: "solid" }}
+          >
+            <div className="flex items-center gap-4 min-w-0">
+              {brand.logoUrl ? (
+                <img src={brand.logoUrl} alt={brand.companyName} className="w-14 h-14 rounded-xl object-cover border border-white/10 flex-shrink-0" />
+              ) : (
+                <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 text-xl font-black text-white" style={{ background: kit.colorPalette?.primary ?? "#7c3aed" }}>
+                  {brand.companyName.split(/\s+/).slice(0, 2).map((w: string) => w[0]).join("").toUpperCase()}
                 </div>
-              ))}
+              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                  <h2 className="text-base font-bold text-foreground">{brand.companyName}</h2>
+                  <span className={cn("inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border", style.className)}>{style.label}</span>
+                </div>
+                {kit.taglines && kit.taglines[0] && (
+                  <p className="text-sm text-muted-foreground italic truncate">"{kit.taglines[0]}"</p>
+                )}
+                <div className="flex items-center gap-3 mt-2 flex-wrap">
+                  {Object.entries(kit.colorPalette ?? {}).slice(0, 5).map(([key, color]) => (
+                    <div key={key} className="w-5 h-5 rounded-full border-2 border-white/20 shadow-sm" style={{ backgroundColor: color as string }} title={key} />
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+            {stats && (
+              <div className="flex gap-4 flex-shrink-0">
+                {[
+                  { label: "Campaigns", value: stats.totalCampaigns, icon: Megaphone },
+                  { label: "Posts", value: stats.totalPosts, icon: FileText },
+                  { label: "Images", value: (stats as unknown as Record<string, unknown>).postsWithImages as number ?? 0, icon: ImageIcon },
+                ].map((s) => (
+                  <div key={s.label} className="text-center">
+                    <p className="text-xl font-bold text-foreground">{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-          {/* Tab navigation */}
-          <div className="flex items-center gap-1 border-b border-border">
-            {tabs.map((tab) => {
+          {/* Tab navigation — step-style */}
+          <div className="flex items-stretch gap-0 rounded-xl border border-border overflow-hidden bg-card">
+            {tabs.map((tab, idx) => {
               const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
-                    activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                    "flex-1 flex flex-col sm:flex-row items-center sm:items-center gap-1.5 px-3 py-3 text-sm font-medium transition-all relative",
+                    idx !== 0 && "border-l border-border",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                   )}
                 >
-                  <Icon className="w-3.5 h-3.5" />
-                  {tab.label}
+                  <span className={cn("text-[10px] font-bold opacity-50", isActive && "opacity-70")}>{tab.step}</span>
+                  <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="hidden sm:inline whitespace-nowrap text-xs">{tab.label}</span>
                 </button>
               );
             })}
@@ -1106,110 +1167,125 @@ export default function BrandKit() {
 
           {/* ─── VISUAL IDENTITY TAB ─────────────────────────────────────── */}
           {activeTab === "identity" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-              <div className="lg:col-span-2 space-y-5">
-                {/* Color Palette */}
-                <InfoCard icon={Palette} title="Brand Color System">
-                  <div className="flex flex-wrap gap-5 mb-4">
-                    {Object.entries(kit.colorPalette ?? {}).map(([key, color]) => (
-                      <ColorSwatch key={key} color={color as string} label={key} />
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Copy className="w-3 h-3" /> Click any swatch to copy hex code
-                  </p>
-                </InfoCard>
+            <div className="space-y-5">
+              {/* Section label */}
+              <div className="flex items-center gap-3">
+                <span className="text-3xl font-black text-primary/20 leading-none select-none">01</span>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Visual Identity</h3>
+                  <p className="text-xs text-muted-foreground">Colors, typography, and design language that define your brand's look</p>
+                </div>
+              </div>
 
-                {/* Typography */}
-                <InfoCard icon={Type} title="Typography System">
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-card-border p-4">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Display / Headline</p>
-                      <p className="text-3xl font-black text-foreground tracking-tight leading-none">{brand.companyName}</p>
-                      <p className="text-xs text-muted-foreground mt-2">Weight 900 · Tight tracking · Used for hero text</p>
+              {/* Color Palette — large swatches with names */}
+              <InfoCard icon={Palette} title="Brand Color System">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
+                  {Object.entries(kit.colorPalette ?? {}).map(([key, color]) => (
+                    <ColorSwatchLarge key={key} color={color as string} label={key} />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                  <Copy className="w-3 h-3" /> Click any swatch to copy hex code
+                </p>
+              </InfoCard>
+
+              {/* Mission & Vision — prominent */}
+              {(kit.missionStatement || kit.visionStatement) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {kit.missionStatement && (
+                    <div className="rounded-xl border border-card-border bg-card p-5 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                          <Target className="w-3.5 h-3.5 text-emerald-500" />
+                        </div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">Mission</p>
+                      </div>
+                      <p className="text-sm font-semibold text-foreground italic leading-relaxed">"{kit.missionStatement}"</p>
                     </div>
-                    <div className="rounded-lg border border-card-border p-4">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Section Headings</p>
-                      <p className="text-xl font-bold text-foreground">{brand.industry} Excellence Redefined</p>
-                      <p className="text-xs text-muted-foreground mt-2">Weight 700 · Normal tracking · H2 level</p>
+                  )}
+                  {kit.visionStatement && (
+                    <div className="rounded-xl border border-card-border bg-card p-5 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                          <Zap className="w-3.5 h-3.5 text-violet-500" />
+                        </div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Vision</p>
+                      </div>
+                      <p className="text-sm font-semibold text-foreground italic leading-relaxed">"{kit.visionStatement}"</p>
                     </div>
-                    <div className="rounded-lg border border-card-border p-4">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Body Text</p>
-                      <p className="text-sm text-foreground leading-relaxed">{brand.companyDescription?.slice(0, 140)}...</p>
-                      <p className="text-xs text-muted-foreground mt-2">Weight 400 · Normal spacing · 16px base</p>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2 space-y-4">
+                  {/* Typography */}
+                  <InfoCard icon={Type} title="Typography Scale">
+                    <div className="divide-y divide-border">
+                      <div className="py-3 first:pt-0 last:pb-0">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">Display / Hero</p>
+                        <p className="text-3xl font-black text-foreground tracking-tight leading-none">{brand.companyName}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1.5">900 weight · tight tracking</p>
+                      </div>
+                      <div className="py-3">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">Section Heading</p>
+                        <p className="text-xl font-bold text-foreground">{brand.industry} Excellence</p>
+                        <p className="text-[10px] text-muted-foreground mt-1.5">700 weight · normal tracking</p>
+                      </div>
+                      <div className="py-3 last:pb-0">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">Body Copy</p>
+                        <p className="text-sm text-foreground leading-relaxed">{brand.companyDescription?.slice(0, 120)}...</p>
+                        <p className="text-[10px] text-muted-foreground mt-1.5">400 weight · 1.6 line-height</p>
+                      </div>
                     </div>
                     {kit.typographyRecommendations && (
-                      <div className="rounded-lg bg-muted/30 p-3">
+                      <div className="mt-3 rounded-lg bg-primary/5 border border-primary/10 p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">Typography Notes</p>
                         <p className="text-xs text-foreground leading-relaxed">{kit.typographyRecommendations}</p>
                       </div>
                     )}
-                  </div>
-                </InfoCard>
-
-                {/* Visual Style Rules */}
-                <InfoCard icon={Globe} title="Visual Design Rules">
-                  <p className="text-sm text-foreground leading-relaxed">{kit.visualStyleRules}</p>
-                </InfoCard>
-              </div>
-
-              <div className="space-y-5">
-                {/* Brand Personality */}
-                <InfoCard icon={Sparkles} title="Brand Personality">
-                  <p className="text-sm text-foreground leading-relaxed">{kit.personality}</p>
-                </InfoCard>
-
-                {/* Mission & Vision */}
-                {(kit.missionStatement || kit.visionStatement) && (
-                  <InfoCard icon={Target} title="Mission & Vision">
-                    <div className="space-y-3">
-                      {kit.missionStatement && (
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Mission</p>
-                          <p className="text-sm text-foreground font-medium leading-relaxed italic">"{kit.missionStatement}"</p>
-                        </div>
-                      )}
-                      {kit.visionStatement && (
-                        <div className="pt-2 border-t border-border">
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Vision</p>
-                          <p className="text-sm text-foreground font-medium leading-relaxed italic">"{kit.visionStatement}"</p>
-                        </div>
-                      )}
-                    </div>
                   </InfoCard>
-                )}
 
-                {/* Taglines */}
-                {kit.taglines && kit.taglines.length > 0 && (
-                  <InfoCard icon={Quote} title="Brand Taglines">
-                    <div className="space-y-2">
-                      {kit.taglines.map((tagline, i) => (
-                        <div key={i} className={cn("rounded-lg p-3", i === 0 ? "bg-primary/10 border border-primary/20" : "bg-muted/30")}>
-                          <p className={cn("text-sm font-semibold", i === 0 ? "text-primary" : "text-foreground")}>
-                            {i === 0 && <span className="text-[10px] font-bold uppercase tracking-wider text-primary/70 block mb-0.5">Primary</span>}
-                            "{tagline}"
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+                  {/* Visual Style Rules */}
+                  <InfoCard icon={Globe} title="Visual Design Rules">
+                    <p className="text-sm text-foreground leading-relaxed">{kit.visualStyleRules}</p>
                   </InfoCard>
-                )}
+                </div>
 
-                {/* Generate Campaign CTA */}
-                <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-violet-500/5 p-5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Wand2 className="w-4 h-4 text-primary" />
-                    <h2 className="text-sm font-semibold text-foreground">Launch Campaign</h2>
+                <div className="space-y-4">
+                  {/* Brand Personality */}
+                  <InfoCard icon={Sparkles} title="Brand Personality">
+                    <p className="text-sm text-foreground leading-relaxed">{kit.personality}</p>
+                  </InfoCard>
+
+                  {/* Taglines */}
+                  {kit.taglines && kit.taglines.length > 0 && (
+                    <InfoCard icon={Quote} title="Brand Taglines">
+                      <div className="space-y-2">
+                        {kit.taglines.map((tagline, i) => (
+                          <div key={i} className={cn("rounded-lg p-3", i === 0 ? "bg-primary/10 border border-primary/20" : "bg-muted/20 border border-border")}>
+                            {i === 0 && <p className="text-[9px] font-bold uppercase tracking-widest text-primary mb-1">★ Primary</p>}
+                            <p className={cn("text-sm font-semibold italic leading-snug", i === 0 ? "text-primary" : "text-foreground")}>"{tagline}"</p>
+                          </div>
+                        ))}
+                      </div>
+                    </InfoCard>
+                  )}
+
+                  {/* CTA */}
+                  <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-violet-500/5 p-4">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Wand2 className="w-4 h-4 text-primary" />
+                      <h2 className="text-sm font-semibold text-foreground">Launch Campaign</h2>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-3">Generate a full AI-powered marketing campaign using this brand kit.</p>
+                    <button
+                      onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Launch Campaign Wizard
+                    </button>
                   </div>
-                  <p className="text-xs text-muted-foreground mb-4">
-                    Generate a multi-platform marketing campaign with AI-composed images and brand-consistent copy.
-                  </p>
-                  <button
-                    onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
-                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Launch Campaign Wizard
-                  </button>
                 </div>
               </div>
             </div>
@@ -1217,256 +1293,346 @@ export default function BrandKit() {
 
           {/* ─── CONTENT & VOICE TAB ────────────────────────────────────── */}
           {activeTab === "content" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Audience Segments */}
-              <InfoCard icon={Users} title="Target Audience Segments" className="lg:col-span-2">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {kit.audienceSegments.map((seg, i) => (
-                    <div key={i} className="flex items-start gap-3 p-4 rounded-xl bg-muted/30 border border-card-border">
-                      <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center flex-shrink-0 text-xs font-bold">
-                        {i + 1}
-                      </div>
-                      <p className="text-sm text-foreground leading-snug">{seg}</p>
-                    </div>
-                  ))}
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl font-black text-primary/20 leading-none select-none">02</span>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Content & Voice</h3>
+                  <p className="text-xs text-muted-foreground">How your brand communicates, connects, and resonates with its audience</p>
                 </div>
-              </InfoCard>
+              </div>
 
-              {/* Tone of Voice */}
-              <InfoCard icon={MessageSquare} title="Tone of Voice & Communication Style">
-                <p className="text-sm text-foreground leading-relaxed mb-4">{kit.toneOfVoice}</p>
+              {/* Tone of Voice — highlighted */}
+              <div className="rounded-xl border border-card-border bg-card p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-foreground">Tone of Voice</h3>
+                </div>
+                <p className="text-sm text-foreground leading-relaxed">{kit.toneOfVoice}</p>
                 {kit.socialBio && (
-                  <div className="rounded-lg bg-muted/30 p-3 mt-2">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Ready-to-use Social Bio</p>
+                  <div className="rounded-lg bg-muted/40 border border-border p-3 mt-2">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">Ready-to-use Social Bio</p>
                     <p className="text-sm text-foreground">{kit.socialBio}</p>
                   </div>
                 )}
-              </InfoCard>
+              </div>
 
-              {/* Messaging Pillars */}
-              {kit.messagingPillars && kit.messagingPillars.length > 0 && (
-                <InfoCard icon={Layers} title="Messaging Pillars">
-                  <div className="space-y-3">
-                    {kit.messagingPillars.map((pillar, i) => {
-                      const [theme, ...rest] = pillar.split(" — ");
-                      return (
-                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/30">
-                          <div className="w-6 h-6 rounded-md bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 text-xs font-bold">
-                            {i + 1}
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold text-foreground">{theme}</p>
-                            {rest.length > 0 && <p className="text-xs text-muted-foreground mt-0.5">{rest.join(" — ")}</p>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </InfoCard>
-              )}
-
-              {/* Do's and Don'ts */}
-              {(kit.dosCommunication?.length || kit.dontsCommunication?.length) ? (
-                <InfoCard icon={Shield} title="Communication Do's & Don'ts" className="lg:col-span-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-green-600 dark:text-green-400 mb-2">✓ Do's</p>
-                      <div className="space-y-2">
-                        {kit.dosCommunication?.map((item, i) => (
-                          <div key={i} className="flex items-start gap-2 p-2.5 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0 mt-0.5" />
-                            <p className="text-xs text-foreground">{item.replace(/^Do:\s*/i, "")}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-rose-500 mb-2">✗ Don'ts</p>
-                      <div className="space-y-2">
-                        {kit.dontsCommunication?.map((item, i) => (
-                          <div key={i} className="flex items-start gap-2 p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900">
-                            <X className="w-3.5 h-3.5 text-rose-500 flex-shrink-0 mt-0.5" />
-                            <p className="text-xs text-foreground">{item.replace(/^Don't:\s*/i, "")}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </InfoCard>
-              ) : null}
-
-              {/* Brand Keywords */}
-              {kit.brandKeywords && kit.brandKeywords.length > 0 && (
-                <InfoCard icon={Tag} title="Brand Keywords">
-                  <div className="flex flex-wrap gap-2">
-                    {kit.brandKeywords.map((kw, i) => (
-                      <Pill key={i} className="bg-primary/10 text-primary border border-primary/20">{kw}</Pill>
-                    ))}
-                  </div>
-                </InfoCard>
-              )}
-
-              {/* Competitive Position */}
-              {kit.competitivePosition && (
-                <InfoCard icon={BarChart2 ?? Target} title="Competitive Positioning">
-                  <p className="text-sm text-foreground leading-relaxed">{kit.competitivePosition}</p>
-                </InfoCard>
-              )}
-            </div>
-          )}
-
-          {/* ─── MARKET STRATEGY TAB ──────────────────────────────────── */}
-          {activeTab === "strategy" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Positioning */}
-              <InfoCard icon={Target} title="Market Positioning" className="lg:col-span-2">
-                <p className="text-sm text-foreground leading-relaxed text-balance">{kit.positioning}</p>
-              </InfoCard>
-
-              {/* Competitive position */}
-              {kit.competitivePosition && (
-                <InfoCard icon={Zap} title="Competitive Differentiation">
-                  <p className="text-sm text-foreground leading-relaxed">{kit.competitivePosition}</p>
-                </InfoCard>
-              )}
-
-              {/* Personality */}
-              <InfoCard icon={Heart} title="Brand Personality & Character">
-                <p className="text-sm text-foreground leading-relaxed">{kit.personality}</p>
-              </InfoCard>
-
-              {/* Messaging pillars */}
-              {kit.messagingPillars && kit.messagingPillars.length > 0 && (
-                <InfoCard icon={Layers} title="Strategic Messaging Pillars" className="lg:col-span-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {kit.messagingPillars.map((pillar, i) => {
-                      const [theme, ...rest] = pillar.split(" — ");
-                      return (
-                        <div key={i} className="rounded-xl border border-card-border bg-muted/20 p-4 space-y-2">
-                          <div className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                            {i + 1}
-                          </div>
-                          <p className="text-sm font-semibold text-foreground">{theme}</p>
-                          {rest.length > 0 && <p className="text-xs text-muted-foreground leading-relaxed">{rest.join(" — ")}</p>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </InfoCard>
-              )}
-
-              {/* Target Audience Detail */}
-              <InfoCard icon={Users} title="Target Audience Deep-Dive" className="lg:col-span-2">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Audience Segments — interactive cards */}
+              <div className="rounded-xl border border-card-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-foreground">Target Audience Segments</h3>
+                </div>
+                <div className="space-y-3">
                   {kit.audienceSegments.map((seg, i) => {
-                    const labels = ["Primary", "Secondary", "Tertiary"];
+                    const labels = ["Primary Audience", "Secondary Audience", "Tertiary Audience"];
+                    const colors = ["text-primary bg-primary/10 border-primary/20", "text-violet-500 bg-violet-500/10 border-violet-500/20", "text-slate-500 bg-slate-500/10 border-slate-500/20"];
                     return (
-                      <div key={i} className="p-4 rounded-xl border border-card-border bg-card space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
-                            i === 0 ? "bg-primary/10 text-primary" : i === 1 ? "bg-violet-500/10 text-violet-600 dark:text-violet-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                          )}>
-                            {labels[i] ?? `Segment ${i + 1}`}
-                          </span>
+                      <div key={i} className="flex items-start gap-3 p-3.5 rounded-lg bg-muted/20 border border-border hover:bg-muted/40 transition-colors">
+                        <div className={cn("shrink-0 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap", colors[i] ?? colors[2])}>
+                          {labels[i] ?? `Segment ${i + 1}`}
                         </div>
                         <p className="text-sm text-foreground leading-snug">{seg}</p>
                       </div>
                     );
                   })}
                 </div>
-              </InfoCard>
+              </div>
+
+              {/* Messaging Pillars */}
+              {kit.messagingPillars && kit.messagingPillars.length > 0 && (
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Layers className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Messaging Pillars</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {kit.messagingPillars.map((pillar, i) => {
+                      const [theme, ...rest] = pillar.split(" — ");
+                      return (
+                        <div key={i} className="rounded-lg border border-card-border p-4 space-y-2 hover:border-primary/30 hover:bg-primary/3 transition-colors">
+                          <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">{String(i + 1).padStart(2, "0")}</div>
+                          <p className="text-sm font-semibold text-foreground">{theme}</p>
+                          {rest.length > 0 && <p className="text-xs text-muted-foreground leading-snug">{rest.join(" — ")}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Keywords */}
+              {kit.brandKeywords && kit.brandKeywords.length > 0 && (
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Tag className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Brand Keywords</h3>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {kit.brandKeywords.map((kw, i) => (
+                      <span key={i} className="inline-flex items-center px-3 py-1.5 rounded-full bg-primary/8 text-primary text-xs font-semibold border border-primary/20 hover:bg-primary/15 transition-colors cursor-default">{kw}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Do's and Don'ts — side by side */}
+              {(kit.dosCommunication?.length || kit.dontsCommunication?.length) ? (
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Shield className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Communication Rules</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2.5 px-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        <p className="text-xs font-bold uppercase tracking-wider text-emerald-500">Always Do</p>
+                      </div>
+                      <div className="space-y-2">
+                        {kit.dosCommunication?.map((item, i) => (
+                          <div key={i} className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-emerald-950/20 border border-emerald-900/30">
+                            <span className="text-emerald-400 text-xs font-bold mt-0.5 flex-shrink-0">✓</span>
+                            <p className="text-xs text-foreground leading-snug">{item.replace(/^Do:\s*/i, "")}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-2.5 px-1">
+                        <X className="w-3.5 h-3.5 text-rose-500" />
+                        <p className="text-xs font-bold uppercase tracking-wider text-rose-500">Never Do</p>
+                      </div>
+                      <div className="space-y-2">
+                        {kit.dontsCommunication?.map((item, i) => (
+                          <div key={i} className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-rose-950/20 border border-rose-900/30">
+                            <span className="text-rose-400 text-xs font-bold mt-0.5 flex-shrink-0">✗</span>
+                            <p className="text-xs text-foreground leading-snug">{item.replace(/^Don't:\s*/i, "")}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* ─── MARKET STRATEGY TAB ──────────────────────────────────── */}
+          {activeTab === "strategy" && (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl font-black text-primary/20 leading-none select-none">03</span>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Market Strategy</h3>
+                  <p className="text-xs text-muted-foreground">Positioning, competitive advantage, and strategic direction</p>
+                </div>
+              </div>
+
+              {/* Positioning — hero block */}
+              <div className="rounded-xl border border-card-border bg-card p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Target className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-foreground">Market Positioning</h3>
+                </div>
+                <p className="text-sm text-foreground leading-relaxed">{kit.positioning}</p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {kit.competitivePosition && (
+                  <div className="rounded-xl border border-card-border bg-card p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Zap className="w-4 h-4 text-amber-500" />
+                      <h3 className="text-sm font-semibold text-foreground">Competitive Edge</h3>
+                    </div>
+                    <p className="text-sm text-foreground leading-relaxed">{kit.competitivePosition}</p>
+                  </div>
+                )}
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Heart className="w-4 h-4 text-rose-500" />
+                    <h3 className="text-sm font-semibold text-foreground">Brand Character</h3>
+                  </div>
+                  <p className="text-sm text-foreground leading-relaxed">{kit.personality}</p>
+                </div>
+              </div>
+
+              {/* Messaging pillars — large cards */}
+              {kit.messagingPillars && kit.messagingPillars.length > 0 && (
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Layers className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Strategic Messaging Pillars</h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {kit.messagingPillars.map((pillar, i) => {
+                      const [theme, ...rest] = pillar.split(" — ");
+                      const accentColors = ["border-primary/30 bg-primary/5", "border-violet-500/30 bg-violet-500/5", "border-amber-500/30 bg-amber-500/5"];
+                      const numColors = ["bg-primary text-primary-foreground", "bg-violet-500 text-white", "bg-amber-500 text-white"];
+                      return (
+                        <div key={i} className={cn("rounded-xl border p-4 space-y-3", accentColors[i] ?? "border-card-border bg-muted/20")}>
+                          <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black", numColors[i] ?? "bg-primary text-primary-foreground")}>
+                            {i + 1}
+                          </div>
+                          <p className="text-sm font-bold text-foreground leading-snug">{theme}</p>
+                          {rest.length > 0 && <p className="text-xs text-muted-foreground leading-relaxed">{rest.join(" — ")}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Audience deep-dive */}
+              <div className="rounded-xl border border-card-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-semibold text-foreground">Audience Strategy</h3>
+                </div>
+                <div className="space-y-3">
+                  {kit.audienceSegments.map((seg, i) => {
+                    const labels = ["Primary", "Secondary", "Tertiary"];
+                    const ringColors = ["ring-primary/40 bg-primary text-primary-foreground", "ring-violet-500/40 bg-violet-500 text-white", "ring-slate-400/40 bg-slate-500 text-white"];
+                    return (
+                      <div key={i} className="flex items-start gap-3 p-4 rounded-lg bg-muted/20 border border-border">
+                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ring-2 ring-offset-2 ring-offset-card", ringColors[i] ?? "bg-muted text-foreground")}>
+                          {i + 1}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">{labels[i] ?? `Segment ${i + 1}`} Audience</p>
+                          <p className="text-sm text-foreground leading-snug">{seg}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
           {/* ─── BRAND STORY TAB ──────────────────────────────────────── */}
           {activeTab === "story" && (
             <div className="space-y-5">
-              {/* Brand Story */}
-              <InfoCard
-                icon={BookOpen}
-                title="Brand Story"
-                action={
+              <div className="flex items-center gap-3">
+                <span className="text-3xl font-black text-primary/20 leading-none select-none">04</span>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Brand Story</h3>
+                  <p className="text-xs text-muted-foreground">Your brand's narrative, origin, and core statements</p>
+                </div>
+              </div>
+
+              {/* Mission + Vision — top */}
+              {(kit.missionStatement || kit.visionStatement) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {kit.missionStatement && (
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                          <Target className="w-3.5 h-3.5 text-emerald-500" />
+                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Our Mission</p>
+                      </div>
+                      <blockquote className="border-l-2 border-emerald-500 pl-3">
+                        <p className="text-sm font-semibold text-foreground italic leading-relaxed">"{kit.missionStatement}"</p>
+                      </blockquote>
+                    </div>
+                  )}
+                  {kit.visionStatement && (
+                    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-5 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-violet-500/15 flex items-center justify-center">
+                          <Zap className="w-3.5 h-3.5 text-violet-500" />
+                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-500">Our Vision</p>
+                      </div>
+                      <blockquote className="border-l-2 border-violet-500 pl-3">
+                        <p className="text-sm font-semibold text-foreground italic leading-relaxed">"{kit.visionStatement}"</p>
+                      </blockquote>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Brand Story — narrative */}
+              <div className="rounded-xl border border-card-border bg-card overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Brand Narrative</h3>
+                  </div>
                   <button
                     onClick={handleRegenerateBrandStory}
                     disabled={generatingStory}
                     className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg border border-border transition-colors disabled:opacity-60"
                   >
-                    {generatingStory ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                    {generatingStory ? "Regenerating..." : "Regenerate Story"}
+                    {generatingStory ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    {generatingStory ? "Regenerating..." : "Regenerate"}
                   </button>
-                }
-              >
-                {storyError && (
-                  <div className="mb-3 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive">{storyError}</div>
-                )}
-                {kit.brandStory ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    {kit.brandStory.split("\n\n").filter(Boolean).map((para, i) => (
-                      <p key={i} className="text-sm text-foreground leading-relaxed mb-4">{para}</p>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <BookOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground mb-4">No brand story yet. Generate one to tell your brand's unique origin story.</p>
-                    <button
-                      onClick={handleRegenerateBrandStory}
-                      disabled={generatingStory}
-                      className="flex items-center gap-2 mx-auto px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
-                    >
-                      {generatingStory ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      {generatingStory ? "Generating Story..." : "Generate Brand Story"}
-                    </button>
-                  </div>
-                )}
-              </InfoCard>
-
-              {/* Mission & Vision */}
-              {(kit.missionStatement || kit.visionStatement) && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {kit.missionStatement && (
-                    <InfoCard icon={Target} title="Mission Statement">
-                      <blockquote className="border-l-4 border-primary pl-4">
-                        <p className="text-base font-semibold text-foreground italic leading-relaxed">"{kit.missionStatement}"</p>
-                      </blockquote>
-                    </InfoCard>
+                </div>
+                <div className="p-5">
+                  {storyError && (
+                    <div className="mb-3 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive">{storyError}</div>
                   )}
-                  {kit.visionStatement && (
-                    <InfoCard icon={Zap} title="Vision Statement">
-                      <blockquote className="border-l-4 border-violet-500 pl-4">
-                        <p className="text-base font-semibold text-foreground italic leading-relaxed">"{kit.visionStatement}"</p>
-                      </blockquote>
-                    </InfoCard>
+                  {kit.brandStory ? (
+                    <div className="space-y-4">
+                      {kit.brandStory.split("\n\n").filter(Boolean).map((para, i) => (
+                        <p key={i} className={cn("text-sm leading-relaxed", i === 0 ? "text-base font-medium text-foreground" : "text-foreground/80")}>{para}</p>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-10">
+                      <BookOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+                      <p className="text-sm text-muted-foreground mb-4">No brand story yet — generate one to tell your brand's unique origin story.</p>
+                      <button
+                        onClick={handleRegenerateBrandStory}
+                        disabled={generatingStory}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+                      >
+                        {generatingStory ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        {generatingStory ? "Generating..." : "Generate Brand Story"}
+                      </button>
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
 
               {/* Taglines */}
               {kit.taglines && kit.taglines.length > 0 && (
-                <InfoCard icon={Quote} title="Campaign Taglines">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Quote className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Brand Taglines</h3>
+                  </div>
+                  <div className="space-y-2.5">
                     {kit.taglines.map((tagline, i) => (
-                      <div key={i} className={cn("p-4 rounded-xl border", i === 0 ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-card-border")}>
-                        {i === 0 && <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-1">★ Primary Tagline</p>}
-                        <p className={cn("text-sm font-semibold", i === 0 ? "text-primary text-base" : "text-foreground")}>"{tagline}"</p>
+                      <div key={i} className={cn(
+                        "flex items-center gap-3 px-4 py-3 rounded-lg border",
+                        i === 0 ? "bg-primary/8 border-primary/25" : "bg-muted/20 border-border"
+                      )}>
+                        {i === 0 && <Star className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
+                        <p className={cn("text-sm font-semibold italic", i === 0 ? "text-primary" : "text-foreground")}>"{tagline}"</p>
+                        {i === 0 && <span className="ml-auto text-[9px] font-bold uppercase tracking-widest text-primary/60 whitespace-nowrap">Primary</span>}
                       </div>
                     ))}
                   </div>
-                </InfoCard>
+                </div>
               )}
 
               {/* Brand Keywords */}
               {kit.brandKeywords && kit.brandKeywords.length > 0 && (
-                <InfoCard icon={Tag} title="Core Brand Keywords">
+                <div className="rounded-xl border border-card-border bg-card p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Tag className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-foreground">Core Brand Keywords</h3>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {kit.brandKeywords.map((kw, i) => (
-                      <span key={i} className="inline-flex items-center px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium border border-primary/20">
+                      <span key={i} className="inline-flex items-center px-3 py-1.5 rounded-full bg-primary/8 text-primary text-xs font-semibold border border-primary/20 hover:bg-primary/15 transition-colors cursor-default">
                         {kw}
                       </span>
                     ))}
                   </div>
-                </InfoCard>
+                </div>
               )}
             </div>
           )}

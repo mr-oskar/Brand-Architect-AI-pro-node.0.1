@@ -146,7 +146,53 @@ def startup_event():
     except RuntimeError as e:
         logger.warning("⚠ AI provider: %s", e)
 
+    _ensure_seed_admin()
+
     logger.info("✓ Rate limiting active (slowapi)")
     logger.info("✓ Middleware: CORS → SlowAPI → RequestLogger")
     logger.info("✓ Admin routes: /api/admin/* (admin-only)")
     logger.info("✓ Server ready — listening on /api/*")
+
+
+def _ensure_seed_admin():
+    """
+    Ensure the default admin account exists on every startup.
+    Creates or upgrades to admin if missing — safe to run repeatedly.
+    """
+    import uuid
+    from app.database import SessionLocal
+    from app.models import User
+    from app.layers.credits import DEFAULT_USER_CREDITS
+    from app.deps import auth_layer
+
+    SEED_EMAIL = "oskar1python@gmail.com"
+    SEED_PASSWORD = "oskar2004#"
+    SEED_NAME = "Oskar (Admin)"
+
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(User.email == SEED_EMAIL).first()
+        if existing:
+            if existing.role != "admin":
+                existing.role = "admin"
+                db.commit()
+                logger.info("✓ Seed admin upgraded to admin role: %s", SEED_EMAIL)
+            else:
+                logger.info("✓ Seed admin already exists: %s", SEED_EMAIL)
+        else:
+            admin = User(
+                id=str(uuid.uuid4()),
+                email=SEED_EMAIL,
+                password_hash=auth_layer.hash_password(SEED_PASSWORD),
+                name=SEED_NAME,
+                role="admin",
+                credits=DEFAULT_USER_CREDITS,
+            )
+            db.add(admin)
+            db.commit()
+            logger.info("✓ Seed admin created: %s", SEED_EMAIL)
+    except Exception as e:
+        db.rollback()
+        logger.error("✗ Seed admin creation failed: %s", e)
+    finally:
+        db.close()
