@@ -1,8 +1,9 @@
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard, Sparkles, PlusCircle, Menu, X,
+  Sparkles, PlusCircle, Menu, X,
   ChevronRight, LogOut, Building2, Loader2,
-  Zap, Settings, Shield,
+  Zap, Shield, LayoutDashboard, Home,
+  FileText, BarChart3, Layers, Settings,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -33,9 +34,59 @@ function usePrefetchCoreData() {
   }, [queryClient]);
 }
 
-// ── Brands section in sidebar ─────────────────────────────────────────────────
+// ── Nav item ──────────────────────────────────────────────────────────────────
 
-function SidebarBrandsList({ onNavigate }: { onNavigate: () => void }) {
+function NavItem({
+  href,
+  icon: Icon,
+  label,
+  onClick,
+  exact = false,
+  externalHref,
+}: {
+  href?: string;
+  icon: React.ElementType;
+  label: string;
+  onClick?: () => void;
+  exact?: boolean;
+  externalHref?: string;
+}) {
+  const [location] = useLocation();
+
+  const isActive = href
+    ? exact
+      ? location === href
+      : location === href || location.startsWith(href + "/")
+    : false;
+
+  const cls = cn(
+    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all group w-full",
+    isActive
+      ? "bg-primary/10 text-primary"
+      : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+  );
+
+  if (externalHref) {
+    return (
+      <a href={externalHref} target="_blank" rel="noopener noreferrer" className={cls} onClick={onClick}>
+        <Icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-primary" : "")} />
+        <span className="flex-1">{label}</span>
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href!} onClick={onClick} className={cls}>
+      <Icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-primary" : "")} />
+      <span className="flex-1">{label}</span>
+      {isActive && <ChevronRight className="w-3 h-3 text-primary/60 flex-shrink-0" />}
+    </Link>
+  );
+}
+
+// ── Projects (brands) list ────────────────────────────────────────────────────
+
+function ProjectsList({ onNavigate }: { onNavigate: () => void }) {
   const [location] = useLocation();
   const { data: brands, isLoading } = useListBrands({
     query: { staleTime: 1000 * 60 * 2, queryKey: getListBrandsQueryKey() },
@@ -54,9 +105,14 @@ function SidebarBrandsList({ onNavigate }: { onNavigate: () => void }) {
 
   if (brandList.length === 0) {
     return (
-      <div className="px-3 py-1.5">
-        <span className="text-[11px] text-sidebar-foreground/30 italic">No brands yet</span>
-      </div>
+      <Link
+        href="/brands/new"
+        onClick={onNavigate}
+        className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] text-sidebar-foreground/40 hover:text-primary hover:bg-primary/5 transition-all border border-dashed border-white/10 hover:border-primary/20 mx-0.5"
+      >
+        <PlusCircle className="w-3.5 h-3.5 flex-shrink-0" />
+        <span>Create first brand</span>
+      </Link>
     );
   }
 
@@ -65,7 +121,8 @@ function SidebarBrandsList({ onNavigate }: { onNavigate: () => void }) {
       {brandList.map((brand: any) => {
         const href = `/brands/${brand.id}`;
         const active = location === href || location.startsWith(`/brands/${brand.id}/`);
-        const initials = (brand.companyName || brand.company_name || "?")
+        const name = brand.companyName || brand.company_name || "Untitled";
+        const initials = name
           .split(" ")
           .slice(0, 2)
           .map((w: string) => w[0])
@@ -84,13 +141,21 @@ function SidebarBrandsList({ onNavigate }: { onNavigate: () => void }) {
                 : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
             )}
           >
-            <div className={cn(
-              "w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold flex-shrink-0",
-              active ? "bg-primary/20 text-primary" : "bg-sidebar-accent text-sidebar-foreground/60"
-            )}>
-              {initials}
-            </div>
-            <span className="flex-1 truncate">{brand.companyName || brand.company_name}</span>
+            {brand.logoUrl ? (
+              <img
+                src={brand.logoUrl}
+                alt={name}
+                className="w-5 h-5 rounded-md object-cover flex-shrink-0 border border-white/10"
+              />
+            ) : (
+              <div className={cn(
+                "w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold flex-shrink-0",
+                active ? "bg-primary/20 text-primary" : "bg-sidebar-accent text-sidebar-foreground/60"
+              )}>
+                {initials}
+              </div>
+            )}
+            <span className="flex-1 truncate">{name}</span>
             {active && <ChevronRight className="w-3 h-3 text-primary/60 flex-shrink-0" />}
           </Link>
         );
@@ -166,6 +231,16 @@ function UserProfile({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
+// ── Section heading ───────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[9px] font-semibold text-sidebar-foreground/30 uppercase tracking-widest px-2 mb-1">
+      {children}
+    </p>
+  );
+}
+
 // ── Main Layout ───────────────────────────────────────────────────────────────
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -178,30 +253,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const closeMobile = () => setMobileOpen(false);
 
-  // Close mobile drawer on route change
   useEffect(() => {
     setMobileOpen(false);
   }, [location]);
 
-  const mainNavItems = [
-    { href: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
-    { href: "/brands/new", label: "New Brand", icon: PlusCircle, exact: false },
-  ];
-
   return (
     <div className="min-h-screen bg-background flex">
-      {/* ── Sidebar ────────────────────────────────────────────────────── */}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 w-60 flex flex-col transition-transform duration-200",
-          "bg-sidebar border-r border-sidebar-border",
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        )}
-      >
+
+      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-60 flex flex-col transition-transform duration-200",
+        "bg-sidebar border-r border-sidebar-border",
+        mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+      )}>
+
         {/* Logo */}
         <div className="h-14 flex items-center px-4 border-b border-sidebar-border gap-3 flex-shrink-0">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm flex-shrink-0">
-            <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-primary flex items-center justify-center shadow-sm flex-shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-[13px] text-sidebar-foreground tracking-tight leading-none truncate">
@@ -220,83 +289,46 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2.5 py-3 overflow-y-auto space-y-4">
+        <nav className="flex-1 px-2.5 py-3 overflow-y-auto space-y-5">
 
-          {/* Workspace section */}
+          {/* ── Pages ────────────────────────────────────────────────────── */}
           <div>
-            <p className="text-[9px] font-semibold text-sidebar-foreground/30 uppercase tracking-widest px-2 mb-1">
-              Workspace
-            </p>
+            <SectionLabel>Pages</SectionLabel>
             <div className="space-y-0.5">
-              {mainNavItems.map((item) => {
-                const Icon = item.icon;
-                const active = item.exact
-                  ? location === item.href
-                  : location.startsWith(item.href) && item.href !== "/";
-                const isDashboard = item.href === "/";
-                const dashActive = isDashboard && (
-                  location === "/" || (!location.startsWith("/brands") && !location.startsWith("/campaigns"))
-                );
-                const isActive = isDashboard ? dashActive : active;
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={closeMobile}
-                    className={cn(
-                      "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-sidebar-foreground/65 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    )}
-                  >
-                    <Icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-primary" : "")} />
-                    <span className="flex-1">{item.label}</span>
-                    {isActive && <ChevronRight className="w-3 h-3 text-primary/60" />}
-                  </Link>
-                );
-              })}
+              <NavItem href="/" icon={Home} label="Home" onClick={closeMobile} exact />
+              <NavItem href="/dashboard" icon={LayoutDashboard} label="Dashboard" onClick={closeMobile} />
+              <NavItem href="/assets" icon={Layers} label="Asset Library" onClick={closeMobile} />
+              <NavItem href="/calendar" icon={BarChart3} label="Content Calendar" onClick={closeMobile} />
+              <NavItem href="/templates" icon={FileText} label="Templates" onClick={closeMobile} />
             </div>
           </div>
 
-          {/* My Brands section */}
+          {/* ── Projects ─────────────────────────────────────────────────── */}
           <div>
             <div className="flex items-center justify-between px-2 mb-1">
-              <p className="text-[9px] font-semibold text-sidebar-foreground/30 uppercase tracking-widest">
-                My Brands
-              </p>
+              <SectionLabel>Projects</SectionLabel>
               <Link
                 href="/brands/new"
                 onClick={closeMobile}
-                className="text-sidebar-foreground/30 hover:text-primary transition-colors"
-                title="Create new brand"
+                className="text-sidebar-foreground/30 hover:text-primary transition-colors p-0.5 rounded"
+                title="New brand"
               >
                 <PlusCircle className="w-3 h-3" />
               </Link>
             </div>
-            <SidebarBrandsList onNavigate={closeMobile} />
+            <ProjectsList onNavigate={closeMobile} />
           </div>
 
-          {/* Admin section */}
+          {/* ── Admin ────────────────────────────────────────────────────── */}
           {isAdmin && (
             <div>
-              <p className="text-[9px] font-semibold text-emerald-500/50 uppercase tracking-widest px-2 mb-1">
-                Admin
-              </p>
+              <SectionLabel>Admin</SectionLabel>
               <div className="space-y-0.5">
-                <a
-                  href="/api/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium text-sidebar-foreground/60 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all"
-                >
-                  <Shield className="w-4 h-4 flex-shrink-0" />
-                  <span className="flex-1">API Docs</span>
-                </a>
+                <NavItem externalHref="/api/docs" icon={Shield} label="API Docs" onClick={closeMobile} />
               </div>
             </div>
           )}
+
         </nav>
 
         {/* User profile */}
@@ -313,7 +345,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* ── Main content ──────────────────────────────────────────────── */}
+      {/* ── Main content ──────────────────────────────────────────────────── */}
       <div className="flex-1 lg:ml-60 flex flex-col min-h-screen">
         {/* Mobile header */}
         <header className="lg:hidden h-12 border-b border-border flex items-center px-4 bg-background/95 backdrop-blur sticky top-0 z-30">
@@ -325,8 +357,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 ml-3">
-            <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center">
-              <Sparkles className="w-3 h-3 text-primary-foreground" />
+            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-violet-600 to-primary flex items-center justify-center">
+              <Sparkles className="w-3 h-3 text-white" />
             </div>
             <span className="font-bold text-sm text-foreground">{settings.siteName}</span>
           </div>

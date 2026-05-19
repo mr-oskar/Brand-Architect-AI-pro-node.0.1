@@ -12,6 +12,7 @@ import { Wrench } from "lucide-react";
 
 setAuthTokenGetter(() => getAuthToken());
 
+const AppHome = lazy(() => import("@/pages/AppHome"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const BrandWizard = lazy(() => import("@/pages/BrandWizard"));
 const BrandKit = lazy(() => import("@/pages/BrandKit"));
@@ -60,7 +61,7 @@ function HomeRedirect() {
     return (
       <Layout>
         <Suspense fallback={<PageLoader />}>
-          <Dashboard />
+          <AppHome />
         </Suspense>
       </Layout>
     );
@@ -78,6 +79,7 @@ function ProtectedAppShell() {
       <Layout>
         <Suspense fallback={<PageLoader />}>
           <Switch>
+            <Route path="/dashboard" component={Dashboard} />
             <Route path="/brands/new" component={BrandWizard} />
             <Route path="/brands/:id/edit" component={BrandEdit} />
             <Route path="/brands/:id/campaigns/new" component={CampaignBriefPage} />
