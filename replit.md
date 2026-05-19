@@ -5,12 +5,11 @@
 ## Stack
 
 - pnpm workspace monorepo (Node 24, TypeScript 5.9)
-- **Backend (active):** Python 3.11 + FastAPI + Uvicorn (`artifacts/api-server-python`) — port 8080
-- **Backend (disabled):** Express 5 TypeScript (`artifacts/api-server`) — dev script is a no-op, do NOT enable
+- **Backend:** Python 3.11 + FastAPI + Uvicorn (`artifacts/api-server-python`) — port 8080
 - Frontend: React 19 + Vite 7 SPA (`artifacts/brand-os`) — port 5000 (Replit webview)
 - DB: PostgreSQL (Replit native) — schema via Drizzle ORM (TypeScript), read by SQLAlchemy (Python)
 - AI: Replit AI Integrations (auto-set) + optional `OPENAI_API_KEY` / `GEMINI_API_KEY`
-- Auth: HTTP-only cookie JWT (Python backend) — see `app/layers/auth.py`
+- Auth: JWT via HTTP-only cookie + localStorage (Python backend) — see `app/layers/auth.py`
 
 ## Python Backend — key files
 
@@ -31,14 +30,57 @@ artifacts/api-server-python/
       auth.py / brands.py / campaigns.py / posts.py / dashboard.py / system.py
     services/
       ai/client.py           ← OpenAI/Gemini client resolver
-      ai/brand_kit.py        ← brand kit generation
+      ai/brand_kit.py        ← brand kit + brand story generation
       ai/campaign.py         ← campaign generation
-      ai/post.py             ← regenerate/variant/content
+      ai/post.py             ← regenerate/variant/long-form content
       ai/image.py            ← image generation (with logo/references)
       image_storage.py       ← local file storage for generated images
       job_store.py           ← in-memory background job tracker
+      logo_processor.py      ← logo variants (black/white/grayscale) + color extraction
   EXCLUDED_FEATURES.md       ← full list of excluded features + how to add them
 ```
+
+## API Endpoints (all under /api/)
+
+### Auth
+- `POST /auth/register` — register new user
+- `POST /auth/login` — login
+- `POST /auth/logout` — logout
+- `GET  /auth/me` — get current user
+
+### Brands
+- `GET    /brands` — list brands (paginated)
+- `POST   /brands` — create brand
+- `GET    /brands/:id` — get brand
+- `PATCH  /brands/:id` — update brand
+- `DELETE /brands/:id` — delete brand
+- `POST   /brands/:id/generate-kit` — generate brand kit
+- `POST   /brands/:id/generate-logo-variants` — black/white/grayscale logo + colors
+- `POST   /brands/:id/generate-story` — generate/regenerate brand story
+- `POST   /brands/:id/generate-content` — long-form content (blog/email/newsletter)
+- `GET    /brands/:id/stats` — aggregated stats
+- `POST   /brands/:id/generate-campaign` — start async campaign generation (returns jobId)
+- `POST   /brands/:id/campaign-brief-job` — full pipeline with step progress (returns jobId)
+- `GET    /brands/:id/campaigns` — list campaigns for brand
+
+### Campaigns & Posts
+- `GET  /campaigns/:id` — get campaign + posts
+- `POST /posts/campaigns/:campaign_id/generate-all-images` — bulk image generation (returns jobId)
+- `GET  /posts/:id` — get post
+- `PATCH /posts/:id` — update post
+- `DELETE /posts/:id` — delete post
+- `POST /posts/:id/generate-image` — generate image for post
+- `POST /posts/:id/restore-image` — restore image from history
+- `POST /posts/:id/regenerate` — regenerate post text
+- `POST /posts/:id/generate-variant` — A/B variant of post
+- `POST /posts/:id/generate-content` — long-form content from post hook
+
+### System
+- `GET /health` — health check
+- `GET /public-settings` — public site settings
+- `GET /jobs/:id` — poll background job status
+- `GET /credit-costs` — current credit costs
+- `GET /storage/images/objects/uploads/:id` — serve stored image
 
 ## Configured env (Replit)
 
@@ -52,12 +94,8 @@ artifacts/api-server-python/
 
 ## Workflows (active)
 
-- `Python API Server` — `cd artifacts/api-server-python && uvicorn main:app --host 0.0.0.0 --port 8080 --reload` **(port 8080)**
+- `Python API Server` — `cd artifacts/api-server-python && /home/runner/workspace/.pythonlibs/bin/uvicorn main:app --host 0.0.0.0 --port 8080 --reload` **(port 8080)**
 - `Start application` — `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` **(port 5000, webview)**
-- `artifacts/api-server: API Server` — disabled (dev script exits immediately — no-op)
-- `artifacts/brand-os: web` — auto-managed by Replit artifact (harmless duplicate)
-
-> **Critical:** Never run the TypeScript `API Server` alongside `Python API Server` — both target port 8080.
 
 ## Common commands
 
@@ -78,14 +116,10 @@ Interactive API docs: `http://localhost:8080/api/docs` (Swagger UI)
 
 ## Recent significant changes
 
-- 2026-05-18 — **Python backend fully active:** Removed old docs (AGENTS.md, DEPLOYMENT.md, DEPLOYMENT.md, PYTHON_MIGRATION_PROMPT.md). Wrote comprehensive new DOCUMENTATION.md. Disabled TypeScript API Server dev script (no-op) to prevent port 8080 conflicts. AI provider resolves via Replit AI Integrations (auto-set keys). All 14 DB tables confirmed present.
+- 2026-05-19 — **Deleted TypeScript/Express backend** (`artifacts/api-server`). Ported all missing features to Python: `generate-logo-variants`, `generate-story`, `brand-level generate-content`, `stats`, `campaign-brief-job`. Project is now single-backend (Python only).
+- 2026-05-18 — **Python backend fully active.** AI provider resolves via Replit AI Integrations.
 - 2026-04-27 — **Nodes editor — Brand Kit node**: added a sixth node type `brandKit` to `/nodes`.
-- 2026-04-27 — **Nodes editor — Settings + Style Extractor nodes, model picker.**
-- 2026-04-27 — **Nodes editor — Krea-style redesign + model settings.**
-- 2026-04-27 — **Nodes editor overhaul (`/nodes`):** sidebar, inspector, workspaces, zoom controls.
 - 2026-04-26 — Added Krea-style Nodes visual editor at `/nodes`.
-- 2026-04-26 — Fixed GitHub remote URL; configured persistent credential storage.
-- 2026-04-26 — Unified error notification system (`apiError.ts`).
 
 ## User preferences
 

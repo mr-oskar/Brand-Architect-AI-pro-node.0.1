@@ -123,6 +123,60 @@ Be deeply specific, original, and tailored to {company_name}. Every field must r
         return _build_fallback_kit(company_name, company_description, industry, brand_colors)
 
 
+def generate_brand_story(
+    company_name: str,
+    company_description: str,
+    industry: str,
+    brand_kit: dict,
+) -> str:
+    """
+    Generate or regenerate a compelling brand story for the given brand.
+    Returns a multi-paragraph story string.
+    """
+    tone = brand_kit.get("toneOfVoice", "professional and human")
+    personality = brand_kit.get("personality", "")
+    positioning = brand_kit.get("positioning", "")
+    mission = brand_kit.get("missionStatement", "")
+
+    system_prompt = (
+        "You are a world-class brand storyteller and narrative strategist. "
+        "You craft origin stories that make customers fall in love with brands. "
+        "Your stories are specific, emotionally resonant, and true to the brand's identity. "
+        "Return ONLY the story text — no JSON, no markdown headers."
+    )
+
+    user_prompt = f"""Write a compelling, emotionally engaging brand origin and purpose story for {company_name}.
+
+Company: {company_name}
+Industry: {industry}
+Description: {company_description}
+Brand personality: {personality}
+Brand positioning: {positioning}
+Mission: {mission}
+Tone of voice: {tone}
+
+Write exactly 3 paragraphs:
+1. The origin — what problem or gap did the founders observe? What sparked the idea?
+2. The journey — how did they build it? What did they learn? What makes the approach unique?
+3. The purpose — why does this brand exist today? What future are they building toward?
+
+Be specific to {company_name}. No generic startup clichés. Every sentence must feel authentic."""
+
+    try:
+        raw = call_ai(system_prompt, user_prompt, max_tokens=2048)
+        return raw.strip()
+    except Exception:
+        return (
+            f"{company_name} was founded with a clear-eyed observation: the {industry} space was full of noise "
+            f"and short on real results. {company_description[:120]}.\n\n"
+            f"We built {company_name} differently — starting with the outcomes clients actually needed, "
+            f"then working backwards to create systems that deliver them consistently. "
+            f"Every decision since day one has been guided by that same discipline.\n\n"
+            f"Today, {company_name} exists to give ambitious businesses the strategic edge they deserve. "
+            f"We are not just a service provider — we are the partner that shows up when it matters most."
+        )
+
+
 def _build_fallback_kit(
     company_name: str,
     company_description: str,
