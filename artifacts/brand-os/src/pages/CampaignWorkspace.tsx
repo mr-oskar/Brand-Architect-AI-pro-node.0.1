@@ -142,25 +142,6 @@ async function removeLogoBackground(logoUrl: string): Promise<string> {
 
 // ─── Image Generation Dialog ──────────────────────────────────────────────────
 
-function AspectRatioIcon({ ratio }: { ratio: "portrait" | "square" | "landscape" | "auto" }) {
-  if (ratio === "auto") return <Sparkles className="w-4 h-4" />;
-  const w = ratio === "landscape" ? 20 : ratio === "square" ? 14 : 10;
-  const h = ratio === "portrait" ? 20 : ratio === "square" ? 14 : 10;
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} fill="none" className="flex-shrink-0">
-      <rect x="0.5" y="0.5" width={w - 1} height={h - 1} rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="currentColor" fillOpacity="0.15" />
-    </svg>
-  );
-}
-
-const PRESET_SIZES: { id: ImageSize | "custom"; label: string; sublabel: string; ratio: "portrait" | "square" | "landscape" | "auto"; w?: number; h?: number }[] = [
-  { id: "1024x1024", label: "Square", sublabel: "1:1 · 1024", ratio: "square", w: 1024, h: 1024 },
-  { id: "1024x1536", label: "Story", sublabel: "2:3 · Portrait", ratio: "portrait", w: 1024, h: 1536 },
-  { id: "1536x1024", label: "Wide", sublabel: "3:2 · Landscape", ratio: "landscape", w: 1536, h: 1024 },
-  { id: "auto",      label: "Auto",  sublabel: "AI picks", ratio: "auto" },
-  { id: "custom",    label: "Custom", sublabel: "Enter W × H", ratio: "square" },
-];
-
 const ASPECT_PRESETS: { label: string; w: number; h: number }[] = [
   { label: "1:1",  w: 1080, h: 1080 },
   { label: "4:5",  w: 1080, h: 1350 },
@@ -242,12 +223,6 @@ function ImageGenDialog({
   }, [open, generating, onClose]);
 
   if (!open) return null;
-
-  const models: { id: "nano" | "mini" | "pro"; label: string; desc: string; icon: React.ElementType }[] = [
-    { id: "nano", label: "Nano", desc: "Fast, direct", icon: Zap },
-    { id: "mini", label: "Mini", desc: "Enhanced", icon: Sparkles },
-    { id: "pro", label: "GPT Pro", desc: "Best quality", icon: Wand2 },
-  ];
 
   async function handleAddReferenceFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -488,107 +463,101 @@ function ImageGenDialog({
             />
           </div>
 
-          {/* Canvas size */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Canvas Size</label>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {PRESET_SIZES.map(({ id, label, sublabel, ratio }) => (
-                <button
-                  key={id}
-                  onClick={() => setSizeMode(id)}
+          {/* Canvas size + Prompt quality — compact dropdowns */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                Canvas Size
+              </label>
+              <div className="relative">
+                <select
+                  value={sizeMode}
+                  onChange={(e) => setSizeMode(e.target.value as ImageSize | "custom")}
                   disabled={generating}
-                  className={cn(
-                    "flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border text-xs font-medium transition-all",
-                    sizeMode === id
-                      ? "border-primary bg-primary/5 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
-                    generating && "opacity-60 cursor-not-allowed"
-                  )}
+                  className="w-full appearance-none pl-3 pr-8 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer disabled:opacity-60 transition-colors"
                 >
-                  <AspectRatioIcon ratio={ratio} />
-                  <span className="font-semibold">{label}</span>
-                  <span className={cn("text-[10px]", sizeMode === id ? "text-primary/70" : "text-muted-foreground")}>{sublabel}</span>
-                </button>
-              ))}
-            </div>
-
-            {sizeMode === "custom" && (
-              <div className="mt-3 p-3 rounded-xl border border-border bg-muted/20 space-y-3">
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <label className="block text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wide">Width (px)</label>
-                    <input
-                      type="number"
-                      min={256}
-                      max={4096}
-                      value={customW}
-                      onChange={(e) => setCustomW(Math.max(256, Math.min(4096, parseInt(e.target.value, 10) || 0)))}
-                      className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      disabled={generating}
-                    />
-                  </div>
-                  <span className="pb-2 text-muted-foreground">×</span>
-                  <div className="flex-1">
-                    <label className="block text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wide">Height (px)</label>
-                    <input
-                      type="number"
-                      min={256}
-                      max={4096}
-                      value={customH}
-                      onChange={(e) => setCustomH(Math.max(256, Math.min(4096, parseInt(e.target.value, 10) || 0)))}
-                      className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      disabled={generating}
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {ASPECT_PRESETS.map((p) => (
-                    <button
-                      key={p.label}
-                      onClick={() => applyAspect(p.w, p.h)}
-                      disabled={generating}
-                      className={cn(
-                        "px-2 py-1 rounded-md border text-[11px] font-medium transition-colors",
-                        customW === p.w && customH === p.h
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  AI generation supports 1:1, 2:3, and 3:2 — custom dimensions snap to the closest aspect ratio.
-                </p>
+                  <option value="1024x1024">Square — 1:1</option>
+                  <option value="1024x1536">Story — 2:3 Portrait</option>
+                  <option value="1536x1024">Wide — 3:2 Landscape</option>
+                  <option value="auto">Auto — AI picks</option>
+                  <option value="custom">Custom dimensions</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* AI model */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Prompt Quality</label>
-            <div className="grid grid-cols-3 gap-2">
-              {models.map(({ id, label, desc, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setModel(id)}
+            <div>
+              <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                Prompt Quality
+              </label>
+              <div className="relative">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value as "nano" | "mini" | "pro")}
                   disabled={generating}
-                  className={cn(
-                    "flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all",
-                    model === id
-                      ? "border-primary bg-primary/5 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
-                    generating && "opacity-60 cursor-not-allowed"
-                  )}
+                  className="w-full appearance-none pl-3 pr-8 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer disabled:opacity-60 transition-colors"
                 >
-                  <Icon className="w-4 h-4" />
-                  <span className="font-semibold">{label}</span>
-                  <span className={cn("text-[10px]", model === id ? "text-primary/70" : "text-muted-foreground")}>{desc}</span>
-                </button>
-              ))}
+                  <option value="nano">⚡ Nano — Fast, direct</option>
+                  <option value="mini">✨ Mini — Light enhance</option>
+                  <option value="pro">🎨 Pro — Best quality</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              </div>
             </div>
           </div>
+
+          {/* Custom dimensions panel */}
+          {sizeMode === "custom" && (
+            <div className="p-3 rounded-xl border border-border bg-muted/20 space-y-3">
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="block text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wide">Width px</label>
+                  <input
+                    type="number"
+                    min={256}
+                    max={4096}
+                    value={customW}
+                    onChange={(e) => setCustomW(Math.max(256, Math.min(4096, parseInt(e.target.value, 10) || 0)))}
+                    className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    disabled={generating}
+                  />
+                </div>
+                <span className="pb-2 text-sm text-muted-foreground font-light">×</span>
+                <div className="flex-1">
+                  <label className="block text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wide">Height px</label>
+                  <input
+                    type="number"
+                    min={256}
+                    max={4096}
+                    value={customH}
+                    onChange={(e) => setCustomH(Math.max(256, Math.min(4096, parseInt(e.target.value, 10) || 0)))}
+                    className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    disabled={generating}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {ASPECT_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    onClick={() => applyAspect(p.w, p.h)}
+                    disabled={generating}
+                    className={cn(
+                      "px-2 py-1 rounded-md border text-[11px] font-medium transition-colors",
+                      customW === p.w && customH === p.h
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Custom dimensions snap to the closest supported AI ratio (1:1, 2:3, or 3:2).
+              </p>
+            </div>
+          )}
 
           {/* Footer actions */}
           <div className="flex items-center gap-3 pt-1 sticky bottom-0 bg-background pt-3 -mx-6 px-6 border-t border-border">

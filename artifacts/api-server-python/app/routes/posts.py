@@ -121,19 +121,42 @@ def generate_post_image(
                 f"image #{i + 1}{' — ' + r.get('label', '') if r.get('label') else ''}"
                 for i, r in enumerate(valid_refs)
             )
-            base_prompt += f". You are given {len(valid_refs)} reference image(s): {ref_summary}. Use them as visual guides."
+            base_prompt += (
+                f". You are given {len(valid_refs)} reference image(s): {ref_summary}. "
+                f"Study each reference carefully — replicate their exact visual style, "
+                f"color grading, composition language, and aesthetic details in the output."
+            )
 
-        if body.overlayText:
-            base_prompt += f'. Include the following text rendered clearly: "{body.overlayText}"'
+        overlay_text = (body.overlayText or "").strip()
+        if overlay_text:
+            base_prompt += f'. Render this text clearly and prominently in the design: "{overlay_text}"'
+
         logo_url = (body.logoDataUrl or "").strip() or None
         brand_name = (body.brandName or "").strip() or None
         logo_placement = _logo_placement(size)
         if logo_url and brand_name:
-            base_prompt += f'. The brand logo for "{brand_name}" is provided as reference — incorporate it naturally in the {logo_placement}. Match the logo color scheme.'
+            base_prompt += (
+                f'. The brand logo for "{brand_name}" is provided as a reference image — '
+                f"incorporate it naturally in the {logo_placement}. "
+                f"Respect the logo's color scheme and ensure it reads cleanly against the background."
+            )
         elif brand_name:
-            base_prompt += f'. Reserve a clean area in the {logo_placement} for the brand logo to be composited on top.'
+            base_prompt += (
+                f'. Reserve a clean, uncluttered area in the {logo_placement} '
+                f'for the "{brand_name}" logo to be composited on top later.'
+            )
 
-        final_prompt = enhance_prompt(base_prompt, model=body.model or "pro")
+        # Extract brand DNA from the database for brand-consistent image generation
+        brand_kit = brand.brand_kit or {}
+        final_prompt = enhance_prompt(
+            base_prompt,
+            model=body.model or "pro",
+            brand_name=brand.company_name or "",
+            brand_colors=brand_kit.get("colorPalette") or {},
+            brand_style=brand_kit.get("visualStyle") or "",
+            brand_personality=brand_kit.get("personality") or "",
+            overlay_text=overlay_text,
+        )
 
         all_refs = []
         if logo_url:
@@ -362,6 +385,14 @@ def generate_all_campaign_images(
     logo_url = (body.logoDataUrl or "").strip() or None
     size = _resolve_size(body.size)
 
+    # Capture brand context for the batch thread (brand_kit from the campaign brand)
+    _batch_brand = campaign.brand
+    _batch_brand_name = (_batch_brand.company_name or "") if _batch_brand else ""
+    _batch_brand_kit = (_batch_brand.brand_kit or {}) if _batch_brand else {}
+    _batch_brand_colors = _batch_brand_kit.get("colorPalette") or {}
+    _batch_brand_style = _batch_brand_kit.get("visualStyle") or ""
+    _batch_brand_personality = _batch_brand_kit.get("personality") or ""
+
     def run_batch():
         from app.database import SessionLocal
         thread_db = SessionLocal()
@@ -372,7 +403,14 @@ def generate_all_campaign_images(
                 if not p:
                     continue
                 try:
-                    prompt = enhance_prompt(p.image_prompt or "Abstract commercial design", model="nano")
+                    prompt = enhance_prompt(
+                        p.image_prompt or "Abstract commercial design",
+                        model="mini",
+                        brand_name=_batch_brand_name,
+                        brand_colors=_batch_brand_colors,
+                        brand_style=_batch_brand_style,
+                        brand_personality=_batch_brand_personality,
+                    )
                     if logo_url:
                         img_bytes = generate_image_with_logo_reference(logo_url, prompt, size)
                     else:

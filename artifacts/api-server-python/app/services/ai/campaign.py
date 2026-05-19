@@ -34,10 +34,14 @@ PLATFORM_TONE = {
 }
 
 IMAGE_STYLE_NOTES = {
-    "luxury": "editorial aspirational mood, magazine-quality lighting, elegant negative space, premium textures, soft film grain",
-    "tech": "clean futuristic aesthetic, gradient overlays, glowing UI elements, dark-mode vibes, neon accents",
-    "bold": "high-contrast energy, saturated colors, dynamic diagonal compositions, street-art influence, punchy and loud",
-    "minimal": "breathing room, intentional white space, refined typography hierarchy, quiet confidence, Scandinavian minimal influence",
+    "luxury": "editorial aspirational mood, magazine-quality lighting, elegant negative space, premium textures, soft film grain, Vogue-editorial feel",
+    "tech": "clean futuristic aesthetic, gradient overlays, glowing UI elements, dark-mode vibes, neon accents, sci-fi product photography",
+    "bold": "high-contrast energy, saturated colors, dynamic diagonal compositions, street-art influence, punchy and loud, Gen-Z energy",
+    "minimal": "breathing room, intentional white space, refined typography hierarchy, quiet confidence, Scandinavian minimal influence, Apple-level restraint",
+    "professional": "authoritative corporate photography, clean business environment, confident subjects, neutral palette with brand color pops",
+    "playful": "bright saturated palette, dynamic geometric shapes, fun typography, energetic composition, millennial/Gen-Z appeal",
+    "organic": "natural textures, earthy tones, hand-crafted aesthetic, warm natural lighting, artisan feel",
+    "creative": "avant-garde composition, experimental layout, bold typography as visual element, unexpected color combinations",
 }
 
 
@@ -144,10 +148,11 @@ def generate_campaign(
         or _detect_arabic(brief or "")
     )
     language_instruction = (
-        "LANGUAGE: Write ALL captions and hooks in Arabic (Modern Standard Arabic). "
-        "Hashtags in both Arabic and English. Text must be right-to-left."
+        "LANGUAGE: Write ALL captions and hooks in Arabic (Modern Standard Arabic / فصحى). "
+        "Hashtags: mix Arabic and English hashtags. Text must be right-to-left. "
+        "IMAGE PROMPTS MUST ALWAYS BE IN ENGLISH — AI image models require English prompts for best results."
         if is_arabic
-        else "LANGUAGE: Write in English unless the brand/brief specifies otherwise."
+        else "LANGUAGE: Write in English unless the brand/brief specifies otherwise. Image prompts in English."
     )
 
     brief_section = ""
@@ -218,7 +223,7 @@ Return a JSON object with exactly this structure:
       "caption": "Full platform-appropriate caption (3-5 paragraphs). Match the brand's exact tone. Use line breaks. End with the CTA.",
       "cta": "Specific call to action",
       "hashtags": ["#relevant1", "#relevant2", "#trending3", "#niche4", "#brand5"],
-      "imagePrompt": "Professional commercial visual for {company_name}: [specific scene]. Canvas size: EXACT {platform_sizes_str}. Visual direction: {style} aesthetic — {image_notes}. Color palette: {palette.get('primary', '#6366F1')} as hero color. Lighting: [specify]. Composition: [describe]. Typography integration: [specify if text/headline should appear]. Logo placement area: reserve clean space if logo overlay needed. Quality: ultra-high resolution commercial advertising quality."
+      "imagePrompt": "Ultra-high-quality commercial advertising image for {company_name}. VISUAL CONCEPT: [Describe a highly specific, original scene directly tied to this post's objective and day concept — NO generic stock photography descriptions]. BRAND DNA: {style} aesthetic — {image_notes}. Hero color: {palette.get('primary', '#6366F1')} (use as dominant visual element in backgrounds, gradients, or lighting). Secondary: {palette.get('secondary', '#8B5CF6')} (accents, shadows, supporting elements). LIGHTING: [Specify exact lighting — cinematic rim light, soft diffused studio, golden hour backlight, dramatic moody, etc.]. COMPOSITION: [Specify layout — rule of thirds with subject at [position], leading lines toward [focal point], [amount] of intentional negative space]. TYPOGRAPHY: Reserve [specify corner/area] for brand logo overlay — keep that area clean and uncluttered. QUALITY: Professional commercial photography, ultra-sharp focus, 8K resolution equivalent, flawless execution. Platform: {primary_platform} optimized for {platform_sizes_str}."
     }}
   ]
 }}

@@ -11,6 +11,7 @@ Extension points:
   - Add content moderation before serving generated images.
 """
 import base64
+import re
 import io
 from typing import Optional, Literal
 
@@ -37,7 +38,6 @@ def _extract_image_bytes(response) -> bytes:
     # Fallback: download from URL
     url = getattr(item, "url", None)
     if url:
-        import httpx
         r = httpx.get(url, timeout=120.0, follow_redirects=True)
         r.raise_for_status()
         return r.content
@@ -45,6 +45,10 @@ def _extract_image_bytes(response) -> bytes:
 
 
 ImageSize = Literal["1024x1024", "1024x1536", "1536x1024", "auto"]
+
+
+def _has_arabic(text: str) -> bool:
+    return bool(re.search(r"[\u0600-\u06FF]", text))
 
 
 def _get_gemini_image_model() -> str:
@@ -208,40 +212,150 @@ def generate_image_with_references(
     return _extract_image_bytes(response)
 
 
-def enhance_prompt(prompt: str, model: str = "pro") -> str:
+def enhance_prompt(
+    prompt: str,
+    model: str = "pro",
+    brand_name: str = "",
+    brand_colors: Optional[dict] = None,
+    brand_style: str = "",
+    brand_personality: str = "",
+    overlay_text: str = "",
+) -> str:
     """
     Enhance an image generation prompt using AI text models.
-    model: 'nano' (no enhancement), 'mini' (light), 'pro' (full enhancement)
+
+    model:
+      'nano' — no enhancement, use prompt as-is
+      'mini' — light enhancement + brand color/style injection
+      'pro'  — full art direction with brand DNA, lighting, composition, typography
+
+    Brand parameters are optional. When provided they are woven into the visual
+    language of the prompt so the generated image feels on-brand.
+
+    Arabic text handling: when overlay_text or the prompt contains Arabic characters,
+    the enhancement adds specific Arabic typography instructions so the model renders
+    the text with correct letterforms and right-to-left flow.
     """
     if model == "nano":
         return prompt
 
+    # ── Detect Arabic ──────────────────────────────────────────────────────────
+    arabic_in_overlay = _has_arabic(overlay_text)
+    arabic_in_prompt = _has_arabic(prompt)
+    arabic_text_note = ""
+    if arabic_in_overlay or arabic_in_prompt:
+        arabic_source = overlay_text if arabic_in_overlay else ""
+        arabic_text_note = (
+            "\n\nARABIC TYPOGRAPHY INSTRUCTIONS: "
+            "Any Arabic text in this design must be rendered with perfect calligraphic accuracy — "
+            "use bold, clean Naskh or Kufi letterforms, correct right-to-left character connections, "
+            "and high contrast against the background for full legibility. "
+            "Each Arabic letter must be fully formed and connected correctly. "
+        )
+        if arabic_source:
+            arabic_text_note += f'Exact Arabic text to render: "{arabic_source}". '
+        arabic_text_note += (
+            "Do NOT transliterate Arabic to Latin. Do NOT mirror or reverse the text. "
+            "Treat it as high-priority typographic element."
+        )
+
+    # ── Build brand context block ──────────────────────────────────────────────
+    brand_lines: list[str] = []
+    if brand_name:
+        brand_lines.append(f"Brand name: {brand_name}")
+    if brand_style:
+        brand_lines.append(f"Visual style: {brand_style}")
+    if brand_personality:
+        brand_lines.append(f"Brand personality: {brand_personality}")
+    if brand_colors:
+        primary = (brand_colors.get("primary") or "").strip()
+        secondary = (brand_colors.get("secondary") or "").strip()
+        accent = (brand_colors.get("accent") or "").strip()
+        background = (brand_colors.get("background") or "").strip()
+        if primary:
+            brand_lines.append(f"Primary brand color: {primary} (use as dominant/hero color)")
+        if secondary:
+            brand_lines.append(f"Secondary color: {secondary} (accents, gradients)")
+        if accent:
+            brand_lines.append(f"Accent color: {accent} (highlights)")
+        if background:
+            brand_lines.append(f"Background tone: {background}")
+    brand_block = "\n".join(brand_lines)
+
     client = get_client()
 
+    # ── Mini: light enhancement ────────────────────────────────────────────────
     if model == "mini":
-        instruction = (
-            "Enhance this social media design prompt to be more vivid and detailed for AI image generation. "
-            "Keep all logo placement, text instructions, and reference image mentions exactly as written. "
-            "Return only the enhanced prompt:\n\n" + prompt
-        )
-        model_name = "gpt-4o-mini"
-        max_tokens = 300
-    else:  # pro
-        instruction = (
-            "You are a professional art director and social media designer. "
-            "Enhance this design prompt with rich visual details, typography guidance, lighting, mood, "
-            "and cinematic composition to produce a stunning commercial-quality social media image. "
-            "Keep all logo placement, text overlay, brand instructions, and reference image mentions exactly as written. "
-            "Return only the enhanced prompt:\n\n" + prompt
-        )
-        model_name = "gpt-4o"
-        max_tokens = 400
+        parts = [
+            "Enhance this social media image prompt to be more vivid and visually specific for AI image generation.",
+            "Rules: Keep ALL @reference tokens, logo placement, and text overlay instructions exactly as written.",
+            "Add: specific lighting mood, dominant color emphasis, and composition detail.",
+        ]
+        if brand_block:
+            parts.append(f"\nBrand context to embed:\n{brand_block}")
+        parts.append(f"\nReturn ONLY the enhanced prompt:\n\n{prompt}{arabic_text_note}")
+
+        try:
+            response = client.chat.completions.create(
+                model=resolve_model("gpt-4o-mini"),
+                max_completion_tokens=500,
+                messages=[{"role": "user", "content": "\n".join(parts)}],
+            )
+            return (response.choices[0].message.content or "").strip() or prompt
+        except Exception:
+            return prompt
+
+    # ── Pro: full art-direction with brand DNA ─────────────────────────────────
+    system = (
+        "You are a world-class creative director, art director, and brand photographer with 20 years "
+        "of experience crafting campaign imagery for global brands. "
+        "Your job is to transform a design brief into a precise, hyper-detailed image generation prompt "
+        "that produces stunning commercial-quality social media content perfectly aligned with the brand."
+    )
+
+    user_parts = [
+        "Transform this design brief into a professional image generation prompt.",
+        "",
+        "REQUIREMENTS:",
+        "1. BRAND DNA FIRST — embed the brand's colors as hero visual elements, "
+        "   visual style as the aesthetic foundation, and personality as the mood/energy",
+        "2. CINEMATIC PRECISION — specify exact lighting (name the lighting technique), "
+        "   camera angle, depth of field, and post-processing style",
+        "3. COMPOSITION — describe layout with specifics: rule of thirds, leading lines, "
+        "   negative space placement, focal point",
+        "4. MATERIAL & TEXTURE — specify surface materials, textures, finish (matte/glossy/metallic)",
+        "5. REFERENCE FIDELITY — keep ALL @1, @2... reference tokens EXACTLY as written — "
+        "   these tell the model which uploaded images to use",
+        "6. LOGO SPACE — if the brief mentions logo placement, preserve that instruction precisely",
+        "7. TEXT OVERLAY — if text appears in the brief, keep those instructions exactly",
+        "8. HYPER-SPECIFIC — no vague adjectives like 'beautiful' or 'stunning'; "
+        "   every word must specify something visual",
+    ]
+
+    if brand_block:
+        user_parts += [
+            "",
+            "BRAND CONTEXT (weave this into the visual language — do not just append it):",
+            brand_block,
+        ]
+
+    user_parts += [
+        "",
+        "DESIGN BRIEF:",
+        prompt,
+        arabic_text_note if arabic_text_note else "",
+        "",
+        "Return ONLY the final enhanced prompt. No explanations. No headers. Just the prompt.",
+    ]
 
     try:
         response = client.chat.completions.create(
-            model=resolve_model(model_name),
-            max_completion_tokens=max_tokens,
-            messages=[{"role": "user", "content": instruction}],
+            model=resolve_model("gpt-4o"),
+            max_completion_tokens=700,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": "\n".join(user_parts)},
+            ],
         )
         return (response.choices[0].message.content or "").strip() or prompt
     except Exception:
