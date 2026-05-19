@@ -20,8 +20,12 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
+from app.layers.rate_limit import limiter, rate_limit_exceeded_handler
 from app.routes import auth, brands, campaigns, posts, dashboard, system
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -42,6 +46,12 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# ── Rate Limiter state ────────────────────────────────────────────────────────
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
@@ -124,6 +134,10 @@ def root():
 @app.on_event("startup")
 def startup_event():
     logger.info("Brand Architect AI Pro (Python) starting up...")
+
+    # Log CORS origins for visibility
+    logger.info("✓ CORS allowed origins: %s", settings.allowed_origins)
+
     # Validate DB connection on startup
     try:
         from app.database import engine
@@ -142,4 +156,5 @@ def startup_event():
     except RuntimeError as e:
         logger.warning("⚠ AI provider: %s", e)
 
+    logger.info("✓ Rate limiting active (slowapi)")
     logger.info("✓ Server ready — listening on /api/*")

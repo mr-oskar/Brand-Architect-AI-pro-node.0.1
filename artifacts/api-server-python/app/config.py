@@ -10,6 +10,40 @@ import secrets
 from pydantic_settings import BaseSettings
 
 
+def _build_allowed_origins() -> list[str]:
+    """
+    Build a strict CORS allowlist from environment context.
+
+    Priority:
+      1. ALLOWED_ORIGINS env var (comma-separated) — explicit override for custom domains
+      2. REPLIT_DOMAINS — auto-set by Replit (dev preview + deployed app domains)
+      3. Localhost fallback for pure local development (non-Replit)
+
+    Never falls back to "*" — that allows any website to make credentialed requests.
+    """
+    # 1. Explicit override (e.g. "https://mybrand.com,https://www.mybrand.com")
+    explicit = os.getenv("ALLOWED_ORIGINS", "")
+    if explicit.strip():
+        return [o.strip() for o in explicit.split(",") if o.strip()]
+
+    origins: list[str] = []
+
+    # 2. Replit-injected domains (space or comma separated; may include port)
+    replit_domains = os.getenv("REPLIT_DOMAINS", "")
+    for domain in replit_domains.replace(",", " ").split():
+        domain = domain.strip()
+        if domain:
+            origins.append(f"https://{domain}")
+            origins.append(f"http://{domain}")
+
+    # 3. Always allow localhost variants for local dev / Vite proxy
+    for port in (5000, 5001, 5173, 8080, 3000):
+        origins.append(f"http://localhost:{port}")
+        origins.append(f"http://127.0.0.1:{port}")
+
+    return origins if origins else ["http://localhost:5000"]
+
+
 class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = os.getenv("DATABASE_URL", "")
@@ -54,7 +88,8 @@ class Settings(BaseSettings):
     private_object_dir: str = os.getenv("PRIVATE_OBJECT_DIR", "")
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    allowed_origins: list[str] = ["*"]
+    # Dynamically built from REPLIT_DOMAINS / ALLOWED_ORIGINS — never "*"
+    allowed_origins: list[str] = _build_allowed_origins()
 
     class Config:
         env_file = ".env"
