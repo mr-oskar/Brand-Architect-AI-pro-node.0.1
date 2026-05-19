@@ -80,7 +80,6 @@ externalPort = 8080
 [userenv]
 
 [userenv.shared]
-VITE_CLERK_PUBLISHABLE_KEY = "pk_test_Y3VyaW91cy1yZWRiaXJkLTM2LmNsZXJrLmFjY291bnRzLmRldiQ"
 AUTH_JWT_SECRET = "530d048c3ec09f6ec466f7806c8a19908f81c52c19a6fdc26118e1abcc616894"
 
 [nix]
