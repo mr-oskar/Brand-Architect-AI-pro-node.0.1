@@ -1,12 +1,12 @@
 """
-Brand Architect AI Pro — Python/FastAPI Backend (v2.0)
+Brand Architect AI Pro — Python/FastAPI Backend (v2.1)
 
 Entry point. All configuration lives in app/config.py.
 All routes are mounted under /api/.
 
 ── Middleware stack (outermost → innermost) ──────────────────────────────────
-  CORSMiddleware        — handles cross-origin headers (outermost, runs first)
-  SlowAPIMiddleware     — enforces per-IP rate limits
+  CORSMiddleware          — handles cross-origin headers (outermost, runs first)
+  SlowAPIMiddleware       — enforces per-IP rate limits
   RequestLoggerMiddleware — logs every request + timing (innermost, runs last)
 
 ── To add a new feature module ───────────────────────────────────────────────
@@ -35,7 +35,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.config import settings
 from app.layers.rate_limit import limiter, rate_limit_exceeded_handler
 from app.middleware import RequestLoggerMiddleware
-from app.routes import auth, brands, campaigns, posts, dashboard, system
+from app.routes import auth, brands, campaigns, posts, dashboard, system, admin
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ logger = logging.getLogger("brand-os")
 app = FastAPI(
     title="Brand Architect AI Pro",
     description="AI Brand & Marketing OS — Python Backend",
-    version="2.0.0",
+    version="2.1.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -63,10 +63,10 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # ── Middleware (add innermost first, outermost last) ──────────────────────────
 #
-# Starlette middleware stacks in reverse registration order:
-#   last added = outermost (runs first on request, last on response)
+# Starlette stacks middleware in reverse registration order:
+#   last added = outermost (runs first on request)
 #
-# Current order (request flow: CORS → SlowAPI → Logger → handler):
+# Request flow: CORS → SlowAPI → Logger → handler
 
 app.add_middleware(RequestLoggerMiddleware)   # innermost: logs actual route timing
 app.add_middleware(SlowAPIMiddleware)          # middle:    rate limit checks
@@ -108,6 +108,7 @@ app.include_router(campaigns.router,  prefix="/api")
 app.include_router(posts.router,      prefix="/api")
 app.include_router(dashboard.router,  prefix="/api")
 app.include_router(system.router,     prefix="/api")
+app.include_router(admin.router,      prefix="/api")   # Admin-only management
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────
@@ -116,7 +117,7 @@ app.include_router(system.router,     prefix="/api")
 def root():
     return {
         "name": "Brand Architect AI Pro",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "docs": "/api/docs",
         "health": "/api/health",
     }
@@ -147,4 +148,5 @@ def startup_event():
 
     logger.info("✓ Rate limiting active (slowapi)")
     logger.info("✓ Middleware: CORS → SlowAPI → RequestLogger")
+    logger.info("✓ Admin routes: /api/admin/* (admin-only)")
     logger.info("✓ Server ready — listening on /api/*")

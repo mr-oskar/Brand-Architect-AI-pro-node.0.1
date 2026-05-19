@@ -1,40 +1,31 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Sparkles, PlusCircle, Menu, X,
-  ChevronRight, Bell, Moon, Sun, LogOut,
+  ChevronRight, LogOut, Building2, Loader2,
+  Zap, Settings, Shield,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSettings } from "@/contexts/SiteSettingsContext";
-import { getGetDashboardSummaryQueryKey, getListBrandsQueryKey } from "@workspace/api-client-react";
+import {
+  getGetDashboardSummaryQueryKey,
+  getListBrandsQueryKey,
+  useListBrands,
+} from "@workspace/api-client-react";
 
-function buildNavSections() {
-  return [
-    {
-      label: "Workspace",
-      items: [
-        { href: "/", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/brands/new", label: "New Brand", icon: PlusCircle },
-      ],
-    },
-  ];
-}
+// ── Data prefetch ─────────────────────────────────────────────────────────────
 
 function usePrefetchCoreData() {
   const queryClient = useQueryClient();
   useEffect(() => {
     const baseUrl = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
     const prefetchIfMissing = async (queryKey: readonly unknown[], url: string) => {
-      const existing = queryClient.getQueryData(queryKey);
-      if (existing) return;
+      if (queryClient.getQueryData(queryKey)) return;
       try {
         const res = await fetch(`${baseUrl}${url}`);
-        if (res.ok) {
-          const data = await res.json();
-          queryClient.setQueryData(queryKey, data);
-        }
+        if (res.ok) queryClient.setQueryData(queryKey, await res.json());
       } catch {}
     };
     prefetchIfMissing(getGetDashboardSummaryQueryKey(), "/api/dashboard/summary");
@@ -42,7 +33,75 @@ function usePrefetchCoreData() {
   }, [queryClient]);
 }
 
-function UserProfile() {
+// ── Brands section in sidebar ─────────────────────────────────────────────────
+
+function SidebarBrandsList({ onNavigate }: { onNavigate: () => void }) {
+  const [location] = useLocation();
+  const { data: brands, isLoading } = useListBrands({
+    query: { staleTime: 1000 * 60 * 2 },
+  });
+
+  const brandList = Array.isArray(brands) ? brands : [];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5">
+        <Loader2 className="w-3 h-3 animate-spin text-sidebar-foreground/30" />
+        <span className="text-[11px] text-sidebar-foreground/30">Loading...</span>
+      </div>
+    );
+  }
+
+  if (brandList.length === 0) {
+    return (
+      <div className="px-3 py-1.5">
+        <span className="text-[11px] text-sidebar-foreground/30 italic">No brands yet</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {brandList.map((brand: any) => {
+        const href = `/brands/${brand.id}`;
+        const active = location === href || location.startsWith(`/brands/${brand.id}/`);
+        const initials = (brand.companyName || brand.company_name || "?")
+          .split(" ")
+          .slice(0, 2)
+          .map((w: string) => w[0])
+          .join("")
+          .toUpperCase();
+
+        return (
+          <Link
+            key={brand.id}
+            href={href}
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all group",
+              active
+                ? "bg-primary/10 text-primary"
+                : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+            )}
+          >
+            <div className={cn(
+              "w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold flex-shrink-0",
+              active ? "bg-primary/20 text-primary" : "bg-sidebar-accent text-sidebar-foreground/60"
+            )}>
+              {initials}
+            </div>
+            <span className="flex-1 truncate">{brand.companyName || brand.company_name}</span>
+            {active && <ChevronRight className="w-3 h-3 text-primary/60 flex-shrink-0" />}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── User profile + credits ────────────────────────────────────────────────────
+
+function UserProfile({ onNavigate }: { onNavigate: () => void }) {
   const { user, signOut, refresh } = useAuth();
   if (!user) return null;
 
@@ -53,42 +112,52 @@ function UserProfile() {
   const lowCredits = !isAdmin && credits <= 20;
 
   return (
-    <div className="px-3 pt-3 border-t border-sidebar-border/60 mt-2">
-      <div className="flex items-center gap-2.5 mb-2">
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-primary flex items-center justify-center text-[11px] font-bold text-white">
+    <div className="px-3 pt-3 border-t border-sidebar-border/60 mt-2 space-y-1">
+      {/* User info */}
+      <div className="flex items-center gap-2.5 px-1 py-1 mb-1">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-primary flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
           {initials}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-[12px] font-semibold text-sidebar-foreground leading-none truncate">{displayName}</p>
           <p className="text-[10px] text-sidebar-foreground/40 mt-0.5 truncate">{user.email}</p>
         </div>
+        {isAdmin && (
+          <span className="text-[9px] font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">
+            ADMIN
+          </span>
+        )}
       </div>
 
+      {/* Credits badge */}
       <button
         onClick={() => refresh()}
-        title="نقاطك المتاحة — اضغط للتحديث"
-        className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg mb-2 transition-colors ${
+        title="Your available credits — click to refresh"
+        className={cn(
+          "w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg transition-colors",
           isAdmin
             ? "bg-emerald-500/10 hover:bg-emerald-500/15"
             : lowCredits
             ? "bg-amber-500/10 hover:bg-amber-500/15"
             : "bg-primary/10 hover:bg-primary/15"
-        }`}
+        )}
       >
-        <span className={`flex items-center gap-1.5 text-[11px] font-medium ${
+        <span className={cn(
+          "flex items-center gap-1.5 text-[11px] font-medium",
           isAdmin ? "text-emerald-500" : lowCredits ? "text-amber-500" : "text-primary"
-        }`}>
-          <span className="text-sm">⚡</span>
-          {isAdmin ? "Unlimited" : `${credits.toLocaleString()} نقطة`}
+        )}>
+          <Zap className="w-3 h-3" />
+          {isAdmin ? "Unlimited credits" : `${credits.toLocaleString()} credits`}
         </span>
-        {!isAdmin && (
-          <span className="text-[9px] text-sidebar-foreground/40">credits</span>
+        {!isAdmin && lowCredits && (
+          <span className="text-[9px] text-amber-500/70">Low</span>
         )}
       </button>
 
+      {/* Sign Out */}
       <button
-        onClick={() => { signOut(); }}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] text-sidebar-foreground/50 hover:bg-red-500/10 hover:text-red-400 transition-colors group"
+        onClick={() => { onNavigate(); signOut(); }}
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-sidebar-foreground/50 hover:bg-red-500/10 hover:text-red-400 transition-colors group"
       >
         <LogOut className="w-3.5 h-3.5 group-hover:text-red-400" />
         Sign Out
@@ -97,113 +166,161 @@ function UserProfile() {
   );
 }
 
+// ── Main Layout ───────────────────────────────────────────────────────────────
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => document.documentElement.classList.contains("dark"));
   const { settings } = useSiteSettings();
-  const navSections = buildNavSections();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   usePrefetchCoreData();
 
-  function toggleDark() {
-    const html = document.documentElement;
-    if (html.classList.contains("dark")) {
-      html.classList.remove("dark");
-      setDarkMode(false);
-    } else {
-      html.classList.add("dark");
-      setDarkMode(true);
-    }
-  }
+  const closeMobile = () => setMobileOpen(false);
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location]);
+
+  const mainNavItems = [
+    { href: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
+    { href: "/brands/new", label: "New Brand", icon: PlusCircle, exact: false },
+  ];
 
   return (
     <div className="min-h-screen bg-background flex">
+      {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 flex flex-col transition-transform duration-200",
+          "fixed inset-y-0 left-0 z-50 w-60 flex flex-col transition-transform duration-200",
           "bg-sidebar border-r border-sidebar-border",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
-        <div className="h-16 flex items-center px-5 border-b border-sidebar-border gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm">
-            <Sparkles className="w-4 h-4 text-primary-foreground" />
+        {/* Logo */}
+        <div className="h-14 flex items-center px-4 border-b border-sidebar-border gap-3 flex-shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-sm flex-shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-sm text-sidebar-foreground tracking-tight leading-none truncate">{settings.siteName}</p>
-            <p className="text-[10px] text-sidebar-foreground/40 font-medium mt-0.5 uppercase tracking-wider truncate">{settings.tagline}</p>
+            <p className="font-bold text-[13px] text-sidebar-foreground tracking-tight leading-none truncate">
+              {settings.siteName}
+            </p>
+            <p className="text-[9px] text-sidebar-foreground/40 font-medium mt-0.5 uppercase tracking-wider truncate">
+              {settings.tagline}
+            </p>
           </div>
           <button
-            className="lg:hidden text-sidebar-foreground/50 hover:text-sidebar-foreground"
-            onClick={() => setMobileOpen(false)}
+            className="lg:hidden text-sidebar-foreground/50 hover:text-sidebar-foreground p-1"
+            onClick={closeMobile}
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
-          {navSections.map((section) => (
-            <div key={section.label}>
-              <p className="text-[10px] font-semibold text-sidebar-foreground/35 uppercase tracking-widest px-3 mb-1.5">
-                {section.label}
+        {/* Nav */}
+        <nav className="flex-1 px-2.5 py-3 overflow-y-auto space-y-4">
+
+          {/* Workspace section */}
+          <div>
+            <p className="text-[9px] font-semibold text-sidebar-foreground/30 uppercase tracking-widest px-2 mb-1">
+              Workspace
+            </p>
+            <div className="space-y-0.5">
+              {mainNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = item.exact
+                  ? location === item.href
+                  : location.startsWith(item.href) && item.href !== "/";
+                const isDashboard = item.href === "/";
+                const dashActive = isDashboard && (
+                  location === "/" || (!location.startsWith("/brands") && !location.startsWith("/campaigns"))
+                );
+                const isActive = isDashboard ? dashActive : active;
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={closeMobile}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-sidebar-foreground/65 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    )}
+                  >
+                    <Icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-primary" : "")} />
+                    <span className="flex-1">{item.label}</span>
+                    {isActive && <ChevronRight className="w-3 h-3 text-primary/60" />}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* My Brands section */}
+          <div>
+            <div className="flex items-center justify-between px-2 mb-1">
+              <p className="text-[9px] font-semibold text-sidebar-foreground/30 uppercase tracking-widest">
+                My Brands
+              </p>
+              <Link
+                href="/brands/new"
+                onClick={closeMobile}
+                className="text-sidebar-foreground/30 hover:text-primary transition-colors"
+                title="Create new brand"
+              >
+                <PlusCircle className="w-3 h-3" />
+              </Link>
+            </div>
+            <SidebarBrandsList onNavigate={closeMobile} />
+          </div>
+
+          {/* Admin section */}
+          {isAdmin && (
+            <div>
+              <p className="text-[9px] font-semibold text-emerald-500/50 uppercase tracking-widest px-2 mb-1">
+                Admin
               </p>
               <div className="space-y-0.5">
-                {section.items.map((item) => {
-                  const Icon = item.icon;
-                  const active =
-                    location === item.href ||
-                    (item.href !== "/" && location.startsWith(item.href));
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all group",
-                        active
-                          ? "bg-primary/10 text-primary"
-                          : "text-sidebar-foreground/65 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                      )}
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      <Icon className={cn("w-4 h-4 flex-shrink-0", active ? "text-primary" : "")} />
-                      <span className="flex-1">{item.label}</span>
-                      {active && <ChevronRight className="w-3 h-3 text-primary/60" />}
-                    </Link>
-                  );
-                })}
+                <a
+                  href="/api/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium text-sidebar-foreground/60 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all"
+                >
+                  <Shield className="w-4 h-4 flex-shrink-0" />
+                  <span className="flex-1">API Docs</span>
+                </a>
               </div>
             </div>
-          ))}
+          )}
         </nav>
 
-        <div className="px-3 py-4 border-t border-sidebar-border space-y-1">
-          <button
-            onClick={toggleDark}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
-          >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            {darkMode ? "Light Mode" : "Dark Mode"}
-          </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors">
-            <Bell className="w-4 h-4" />
-            Notifications
-          </button>
-          <UserProfile />
+        {/* User profile */}
+        <div className="flex-shrink-0 pb-2">
+          <UserProfile onNavigate={closeMobile} />
         </div>
       </aside>
 
+      {/* Mobile backdrop */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 lg:hidden"
-          onClick={() => setMobileOpen(false)}
+          onClick={closeMobile}
         />
       )}
 
-      <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
-        <header className="lg:hidden h-14 border-b border-border flex items-center px-4 bg-background/95 backdrop-blur sticky top-0 z-30">
+      {/* ── Main content ──────────────────────────────────────────────── */}
+      <div className="flex-1 lg:ml-60 flex flex-col min-h-screen">
+        {/* Mobile header */}
+        <header className="lg:hidden h-12 border-b border-border flex items-center px-4 bg-background/95 backdrop-blur sticky top-0 z-30">
           <button
-            className="text-foreground/60 hover:text-foreground"
+            className="text-foreground/60 hover:text-foreground p-1"
             onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
           >
             <Menu className="w-5 h-5" />
           </button>
