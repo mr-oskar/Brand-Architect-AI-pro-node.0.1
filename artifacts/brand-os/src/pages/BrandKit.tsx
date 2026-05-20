@@ -1,14 +1,13 @@
 import { useParams, Link } from "wouter";
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect } from "react";
 import {
-  useGetBrand, useGetBrandStats, useGenerateCampaign,
-  getGetBrandQueryKey, getGetBrandStatsQueryKey, getListCampaignsQueryKey,
+  useGetBrand, useGetBrandStats,
+  getGetBrandQueryKey, getGetBrandStatsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Sparkles, Loader2, X, Image as ImageIcon, Plus,
+  ArrowLeft, Sparkles, Loader2, X,
   Copy, CheckCircle2, Download, Edit, RefreshCw,
-  Instagram, Linkedin, Twitter, Facebook, CheckSquare, Square,
   ChevronRight, Zap, Heart, Shield, Target, Star, Quote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -167,15 +166,6 @@ function SectionHeading({ icon: Icon, label, accent }: { icon?: React.ElementTyp
   );
 }
 
-// ─── Platforms ────────────────────────────────────────────────────────────────
-
-const PLATFORMS = [
-  { id: "instagram", label: "Instagram", icon: Instagram },
-  { id: "linkedin", label: "LinkedIn", icon: Linkedin },
-  { id: "twitter", label: "X / Twitter", icon: Twitter },
-  { id: "facebook", label: "Facebook", icon: Facebook },
-];
-
 const styleLabels: Record<string, { label: string; bg: string; text: string }> = {
   tech:    { label: "Tech",    bg: "#3730A3", text: "#A5B4FC" },
   luxury:  { label: "Luxury",  bg: "#78350F", text: "#FCD34D" },
@@ -199,16 +189,6 @@ export default function BrandKit() {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
-  // ── Campaign modal state
-  const [showBriefModal, setShowBriefModal] = useState(false);
-  const [brief, setBrief] = useState("");
-  const [referenceImages, setReferenceImages] = useState<string[]>([]);
-  const [postCount, setPostCount] = useState(7);
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["instagram"]);
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const briefFileInputRef = useRef<HTMLInputElement | null>(null);
-
   // ── Regenerate kit state
   const [regeneratingKit, setRegeneratingKit] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
@@ -229,8 +209,6 @@ export default function BrandKit() {
   const { data: stats } = useGetBrandStats(brandId, {
     query: { enabled: !!brandId, queryKey: getGetBrandStatsQueryKey(brandId) },
   });
-
-  const generateCampaignMutation = useGenerateCampaign();
 
   // Trigger reveal animation on first load
   useEffect(() => {
@@ -268,59 +246,6 @@ export default function BrandKit() {
 
   function isVisible(key: RevealKey) { return revealed.has(key); }
   function isAnimating(key: RevealKey) { return animatingKit && revealed.has(key) && !revealed.has(REVEAL_KEYS[REVEAL_KEYS.indexOf(key) + 1]); }
-
-  // ── Campaign generation
-  function togglePlatform(id: string) {
-    setSelectedPlatforms((prev) =>
-      prev.includes(id) ? (prev.length > 1 ? prev.filter((p) => p !== id) : prev) : [...prev, id]
-    );
-  }
-
-  function handleRefImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const result = ev.target?.result as string;
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const MAX = 512;
-          let { width, height } = img;
-          if (width > MAX || height > MAX) { const r = Math.min(MAX / width, MAX / height); width = Math.round(width * r); height = Math.round(height * r); }
-          canvas.width = width; canvas.height = height;
-          canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
-          setReferenceImages((prev) => [...prev.slice(0, 2), canvas.toDataURL("image/jpeg", 0.75)]);
-        };
-        img.src = result;
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = "";
-  }
-
-  async function handleGenerateCampaign() {
-    setGenerating(true);
-    setShowBriefModal(false);
-    setGenerateError(null);
-    try {
-      const campaign = await generateCampaignMutation.mutateAsync({
-        id: brandId,
-        data: {
-          brief: brief.trim() || undefined,
-          referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-          postCount,
-          platforms: selectedPlatforms,
-        } as Parameters<typeof generateCampaignMutation.mutateAsync>[0]["data"],
-      });
-      queryClient.invalidateQueries({ queryKey: getListCampaignsQueryKey(brandId) });
-      navigate(`/campaigns/${campaign.id}`);
-    } catch (err) {
-      setGenerating(false);
-      setGenerateError(err instanceof Error ? err.message : "Campaign generation failed.");
-      notifyError("Campaign generation failed", err);
-    }
-  }
 
   async function handleRegenerateKit() {
     setRegeneratingKit(true);
@@ -457,27 +382,6 @@ export default function BrandKit() {
   return (
     <div className="min-h-screen bg-background">
 
-      {/* ── Campaign Generating Overlay ─────────────────────────────────────── */}
-      {generating && (
-        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-md flex flex-col items-center justify-center gap-6">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ backgroundColor: `${primaryColor}20` }}>
-            <Loader2 className="w-8 h-8 animate-spin" style={{ color: primaryColor }} />
-          </div>
-          <div className="text-center space-y-1">
-            <h3 className="text-lg font-bold text-foreground">Creating your campaign…</h3>
-            <p className="text-sm text-muted-foreground">AI is writing {postCount} posts for {selectedPlatforms.join(", ")}</p>
-          </div>
-          <div className="flex flex-col gap-2.5 text-left w-64">
-            {["Analyzing brand kit", "Building narrative arc", "Writing platform posts", "Crafting image prompts", "Applying brand voice"].map((s, i) => (
-              <div key={s} className="flex items-center gap-3">
-                <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0 text-muted-foreground" style={{ animationDelay: `${i * 200}ms` }} />
-                <span className="text-sm text-muted-foreground">{s}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Kit Regenerating Overlay ─────────────────────────────────────────── */}
       {regeneratingKit && (
         <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-md flex flex-col items-center justify-center gap-5">
@@ -497,79 +401,6 @@ export default function BrandKit() {
             {["Color System", "Brand Voice", "Personality", "Audience", "Messaging", "Strategy"].map((s) => (
               <div key={s} className="px-3 py-1.5 rounded-lg bg-muted/50 text-[11px] text-muted-foreground text-center animate-pulse">{s}</div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Campaign Brief Modal ─────────────────────────────────────────────── */}
-      {showBriefModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-background rounded-2xl border border-card-border shadow-2xl w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-foreground">Campaign Brief</h3>
-                <p className="text-sm text-muted-foreground mt-0.5">Configure your AI-powered marketing campaign</p>
-              </div>
-              <button onClick={() => setShowBriefModal(false)} className="text-muted-foreground hover:text-foreground transition-colors p-1">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Target Platforms</label>
-              <div className="grid grid-cols-2 gap-2">
-                {PLATFORMS.map(({ id, label, icon: Icon }) => {
-                  const sel = selectedPlatforms.includes(id);
-                  return (
-                    <button key={id} onClick={() => togglePlatform(id)}
-                      className={cn("flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all",
-                        sel ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground")}>
-                      {sel ? <CheckSquare className="w-4 h-4 flex-shrink-0" /> : <Square className="w-4 h-4 flex-shrink-0" />}
-                      <Icon className="w-4 h-4 flex-shrink-0" />{label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Number of Posts <span className="ml-2 font-bold text-primary text-base">{postCount}</span>
-              </label>
-              <input type="range" min={1} max={14} value={postCount} onChange={(e) => setPostCount(Number(e.target.value))} className="w-full accent-primary" />
-              <div className="flex justify-between text-[11px] text-muted-foreground mt-1"><span>1 (quick)</span><span>14 (full campaign)</span></div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Campaign Instructions</label>
-              <textarea className="w-full px-4 py-3 rounded-xl border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none" rows={4}
-                placeholder={`Examples:\n• Product launch — create urgency\n• B2B focus, data-driven tone\n• Summer campaign, vibrant energy`}
-                value={brief} onChange={(e) => setBrief(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Reference Images (optional, max 3)</label>
-              <div className="flex items-center gap-3 flex-wrap">
-                {referenceImages.map((img, i) => (
-                  <div key={i} className="relative">
-                    <img src={img} alt="" className="w-16 h-16 rounded-xl object-cover border border-card-border" />
-                    <button onClick={() => setReferenceImages((p) => p.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center"><X className="w-3 h-3" /></button>
-                  </div>
-                ))}
-                {referenceImages.length < 3 && (
-                  <label className="w-16 h-16 rounded-xl border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors">
-                    <Plus className="w-5 h-5 text-muted-foreground" />
-                    <input ref={briefFileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleRefImageUpload} />
-                  </label>
-                )}
-              </div>
-            </div>
-            {generateError && <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">{generateError}</div>}
-            <div className="flex items-center gap-3">
-              <button onClick={() => setShowBriefModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">Cancel</button>
-              <button onClick={handleGenerateCampaign} disabled={generating}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2"
-                style={{ backgroundColor: primaryColor }}>
-                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {generating ? "Generating…" : `Generate ${postCount} Posts`}
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -621,7 +452,7 @@ export default function BrandKit() {
               </button>
             )}
             {kit && (
-              <button onClick={() => setShowBriefModal(true)}
+              <button onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                 style={{ backgroundColor: primaryColor }}>
                 <Sparkles className="w-3 h-3" />
@@ -1051,7 +882,7 @@ export default function BrandKit() {
                 Use this brand identity to generate an AI-powered marketing campaign with platform-specific posts and on-brand visuals.
               </p>
               <div className="flex items-center justify-center gap-3 flex-wrap">
-                <button onClick={() => setShowBriefModal(true)}
+                <button onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
                   className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl font-bold text-sm text-primary-foreground hover:opacity-90 transition-opacity shadow-lg"
                   style={{ backgroundColor: primaryColor }}>
                   <Sparkles className="w-4 h-4" /> Launch Campaign Wizard

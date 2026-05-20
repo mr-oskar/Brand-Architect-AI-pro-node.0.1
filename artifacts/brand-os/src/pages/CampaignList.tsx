@@ -28,7 +28,7 @@ export default function CampaignList() {
           <p className="text-sm text-muted-foreground">جميع الحملات التسويقية المولَّدة بالذكاء الاصطناعي</p>
         </div>
         <Link
-          href={`/brands/${brandId}/campaign-brief`}
+          href={`/brands/${brandId}/campaigns/new`}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20 flex-shrink-0"
         >
           <Plus className="w-4 h-4" />
@@ -51,7 +51,7 @@ export default function CampaignList() {
             <p className="text-sm text-muted-foreground">أنشئ حملتك الأولى باستخدام مدير المهام الذكي</p>
           </div>
           <Link
-            href={`/brands/${brandId}/campaign-brief`}
+            href={`/brands/${brandId}/campaigns/new`}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors shadow-sm shadow-primary/20"
           >
             <Sparkles className="w-4 h-4" />
