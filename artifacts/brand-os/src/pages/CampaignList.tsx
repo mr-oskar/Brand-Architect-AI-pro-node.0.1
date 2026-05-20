@@ -1,6 +1,6 @@
 import { useParams, Link } from "wouter";
 import { useListCampaigns, useGetBrand, getListCampaignsQueryKey, getGetBrandQueryKey } from "@workspace/api-client-react";
-import { ArrowRight, Megaphone, Calendar, FileText, ChevronLeft, Loader2, Plus, Sparkles } from "lucide-react";
+import { ArrowLeft, Megaphone, Calendar, FileText, ChevronLeft, Loader2, Plus, Sparkles } from "lucide-react";
 
 export default function CampaignList() {
   const params = useParams<{ id: string }>();
@@ -19,7 +19,7 @@ export default function CampaignList() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href={`/brands/${brandId}`} className="text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowRight className="w-5 h-5" />
+          <ArrowLeft className="w-5 h-5" />
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-foreground truncate">

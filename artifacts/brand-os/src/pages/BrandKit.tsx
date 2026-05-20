@@ -452,11 +452,18 @@ export default function BrandKit() {
               </button>
             )}
             {kit && (
+              <Link href={`/brands/${brandId}/campaigns`}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/[0.08] text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors">
+                <ChevronRight className="w-3 h-3" />
+                Campaigns
+              </Link>
+            )}
+            {kit && (
               <button onClick={() => navigate(`/brands/${brandId}/campaigns/new`)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                 style={{ backgroundColor: primaryColor }}>
                 <Sparkles className="w-3 h-3" />
-                <span className="hidden sm:inline">Campaign</span>
+                <span className="hidden sm:inline">New Campaign</span>
               </button>
             )}
           </div>
@@ -531,16 +538,18 @@ export default function BrandKit() {
                 )}
                 {stats && (
                   <div className="flex items-center gap-5 mt-5 flex-wrap justify-center sm:justify-start">
-                    {[
-                      { label: "Campaigns", value: stats.totalCampaigns ?? 0 },
-                      { label: "Posts", value: stats.totalPosts ?? 0 },
-                      { label: "Images", value: stats.postsWithImages ?? 0 },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="text-center sm:text-left">
-                        <p className="text-xl font-black text-foreground">{value}</p>
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
-                      </div>
-                    ))}
+                    <Link href={`/brands/${brandId}/campaigns`} className="text-center sm:text-left group hover:opacity-80 transition-opacity">
+                      <p className="text-xl font-black text-foreground">{stats.totalCampaigns ?? 0}</p>
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider group-hover:text-primary transition-colors">Campaigns</p>
+                    </Link>
+                    <Link href={`/brands/${brandId}/campaigns`} className="text-center sm:text-left group hover:opacity-80 transition-opacity">
+                      <p className="text-xl font-black text-foreground">{stats.totalPosts ?? 0}</p>
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider group-hover:text-primary transition-colors">Posts</p>
+                    </Link>
+                    <div className="text-center sm:text-left">
+                      <p className="text-xl font-black text-foreground">{stats.postsWithImages ?? 0}</p>
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Images</p>
+                    </div>
                   </div>
                 )}
               </div>
