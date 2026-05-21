@@ -26,6 +26,7 @@ class Job:
     status: JobStatus
     progress: int
     total: int
+    step: str = ""
     result: Any = None
     error: str | None = None
     created_at: float = field(default_factory=time.time)

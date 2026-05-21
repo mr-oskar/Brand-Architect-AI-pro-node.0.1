@@ -102,6 +102,7 @@ def get_job_status(
         "status": job.status,
         "progress": job.progress,
         "total": job.total,
+        "step": getattr(job, "step", ""),
         "result": job.result,
         "error": job.error,
     }

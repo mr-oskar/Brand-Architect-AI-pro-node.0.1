@@ -23,7 +23,7 @@ from app.schemas import (
     UpdateBrandRequest,
 )
 from app.services.ai.brand_kit import generate_brand_kit, generate_brand_story
-from app.services.ai.campaign import analyze_brief, generate_campaign
+from app.services.ai.campaign import analyze_brief, generate_campaign, research_trends_and_opportunities
 from app.services.ai.post import generate_long_form_content
 from app.services.job_store import job_store
 from app.services.logo_processor import data_url_to_image, generate_logo_variants, extract_logo_colors
@@ -192,10 +192,18 @@ def generate_brand_campaign(
         try:
             job_store.update(job.id, status="running")
 
+            # Phase 1: Research trends and brand opportunities (always runs)
+            trend_research = research_trends_and_opportunities(
+                company_name=brand_data["company_name"],
+                industry=brand_data["industry"],
+                brand_kit=brand_data["brand_kit"],
+            )
+
+            # Phase 2: Analyze brief (only when provided)
             analyzed = None
-            if brief:
+            if brief or reference_images:
                 analyzed = analyze_brief(
-                    brief=brief,
+                    brief=brief or "",
                     company_name=brand_data["company_name"],
                     industry=brand_data["industry"],
                     reference_images=reference_images,
@@ -210,6 +218,7 @@ def generate_brand_campaign(
                 post_count=days,
                 platforms=platforms,
                 analyzed_brief=analyzed,
+                trend_research=trend_research,
             )
 
             from app.models import Campaign, Post
@@ -457,7 +466,7 @@ def campaign_brief_job(
     except InsufficientCreditsError as e:
         raise HTTPException(status_code=402, detail=str(e))
 
-    job = job_store.create(total=6, user_id=str(current_user.id))
+    job = job_store.create(total=7, user_id=str(current_user.id))
 
     brand_data = {
         "id": brand.id,
@@ -474,18 +483,9 @@ def campaign_brief_job(
 
         thread_db = SessionLocal()
         try:
-            job_store.update(job.id, status="running", progress=0)
+            job_store.update(job.id, status="running", progress=0, step="Preparing brand kit")
 
-            analyzed = None
-            if brief or reference_images:
-                analyzed = analyze_brief(
-                    brief=brief or "",
-                    company_name=brand_data["company_name"],
-                    industry=brand_data["industry"],
-                    reference_images=reference_images,
-                )
-            job_store.update(job.id, progress=1)
-
+            # Step 1: Ensure brand kit exists
             kit = brand_data["brand_kit"]
             if not kit:
                 kit = generate_brand_kit(
@@ -497,7 +497,27 @@ def campaign_brief_job(
                 if b:
                     b.brand_kit = kit
                     thread_db.commit()
-            job_store.update(job.id, progress=2)
+            job_store.update(job.id, progress=1, step="Researching industry trends")
+
+            # Step 2: Research current industry trends and brand opportunities (always runs)
+            trend_research = research_trends_and_opportunities(
+                company_name=brand_data["company_name"],
+                industry=brand_data["industry"],
+                brand_kit=kit,
+                campaign_goal=brief,
+            )
+            job_store.update(job.id, progress=2, step="Analyzing campaign brief")
+
+            # Step 3: Analyze brief and reference images if provided
+            analyzed = None
+            if brief or reference_images:
+                analyzed = analyze_brief(
+                    brief=brief or "",
+                    company_name=brand_data["company_name"],
+                    industry=brand_data["industry"],
+                    reference_images=reference_images,
+                )
+            job_store.update(job.id, progress=3, step="Generating campaign content")
 
             campaign_data = generate_campaign(
                 company_name=brand_data["company_name"],
@@ -508,8 +528,9 @@ def campaign_brief_job(
                 post_count=post_count,
                 platforms=platforms,
                 analyzed_brief=analyzed,
+                trend_research=trend_research,
             )
-            job_store.update(job.id, progress=3)
+            job_store.update(job.id, progress=4, step="Saving campaign")
 
             campaign = Campaign(
                 brand_id=brand_data["id"],
@@ -536,14 +557,14 @@ def campaign_brief_job(
 
             thread_db.commit()
             thread_db.refresh(campaign)
-            job_store.update(job.id, progress=5)
+            job_store.update(job.id, progress=5, step="Activating brand")
 
             b = thread_db.query(Brand).filter(Brand.id == brand_data["id"]).first()
             if b:
                 b.status = "active"
                 thread_db.commit()
 
-            job_store.update(job.id, status="done", progress=6, result={
+            job_store.update(job.id, status="done", progress=7, step="Complete", result={
                 "id": campaign.id,
                 "brandId": campaign.brand_id,
                 "title": campaign.title,

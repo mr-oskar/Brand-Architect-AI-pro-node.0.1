@@ -10,6 +10,28 @@ This file is the **single source of truth** for all work done on this project.
 
 ---
 
+## Session 2026-05-21 — Campaign Generation Overhaul
+
+### Completed [x]
+- [x] **Root cause analysis:** Identified 4 core problems with campaign generation:
+  1. No trend research — comment "Add trend data injection" existed but was never implemented
+  2. Only 5 of 15+ brand kit fields were passed to the AI (missing: dos/don'ts, audience segments, taglines, brand story, mission, vision, competitive position)
+  3. `analyze_brief()` was only called when user wrote a brief — no analysis without brief
+  4. No multi-phase pipeline — generation was a single prompt with no strategic research phase
+- [x] **Rewrote `campaign.py`** with 3-phase multi-step pipeline:
+  - **Phase 1 — `research_trends_and_opportunities()`** (always runs): AI researches current industry trends, audience pain points, campaign angles, proven hook techniques, trending hashtags, seasonal context, and recommends a campaign framework
+  - **Phase 2 — `analyze_brief()`** (optional, when brief/images provided): analyzes client brief + vision-analyses reference images
+  - **Phase 3 — `generate_campaign()`**: now receives full brand DNA block (all 15 brand kit fields including dos/don'ts, audience segments, taglines, brand story, mission, vision, competitive position) + trend research block + analyzed brief. Enforces 10 non-negotiable generation rules.
+- [x] **Updated `brands.py`**: both `generate-campaign` and `campaign-brief-job` endpoints now call `research_trends_and_opportunities()` before generation. `campaign-brief-job` adds progress step labels for each phase.
+- [x] **Added `step` field to `Job` dataclass** in `job_store.py` — pipeline now reports current step label ("Researching industry trends", "Analyzing campaign brief", etc.)
+- [x] **Updated `/api/jobs/:id` route** in `system.py` to return `step` field so frontend can display current progress label
+- [x] Updated `campaign-brief-job` total steps from 6 → 7 to match new pipeline
+
+### Pending [ ]
+- [ ] Frontend: use `step` field in job progress UI for better UX feedback
+
+---
+
 ## Session 2026-05-21 — Refactoring & Agent Rules
 
 ### Completed [x]
