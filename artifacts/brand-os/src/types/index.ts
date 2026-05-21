@@ -114,3 +114,59 @@ export interface Paginated<T> {
 
 /** Toast notification variant. */
 export type ToastVariant = "default" | "destructive";
+
+// ── Image Generation ───────────────────────────────────────────────────────────
+
+/** Supported standard image sizes for AI image generation. */
+export type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
+
+/** AI image generation model tiers. */
+export type ImageModel = "nano" | "mini" | "pro";
+
+/** Options passed to the AI image generation endpoint and ImageGenDialog. */
+export interface ImageGenOptions {
+  customPrompt: string;
+  size: ImageSize;
+  customWidth?: number;
+  customHeight?: number;
+  model: ImageModel;
+  overlayText: string;
+  includeLogo: boolean;
+  logoDataUrl?: string;
+  referenceImages?: Array<{ dataUrl: string; label?: string }>;
+}
+
+/** A single entry in a post's image generation history. */
+export interface PostImageHistoryEntry {
+  url: string;
+  prompt?: string;
+  createdAt: string;
+}
+
+/** A reference image item used inside the AI Image Studio dialog. */
+export interface ReferenceImageItem {
+  id: string;
+  dataUrl: string;
+  name: string;
+  label: string;
+}
+
+// ── Content Generation ─────────────────────────────────────────────────────────
+
+/** A/B variant generated from an existing post. */
+export interface PostVariant {
+  hook: string;
+  caption: string;
+  cta: string;
+  hashtags: string[];
+  imagePrompt: string;
+}
+
+/** Long-form content (blog, email, newsletter) expanded from a post hook. */
+export interface LongFormContent {
+  type: "blog" | "email" | "newsletter";
+  title: string;
+  content: string;
+  metaDescription?: string;
+  subjectLine?: string;
+}

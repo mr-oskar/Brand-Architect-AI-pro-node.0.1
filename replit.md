@@ -8,6 +8,42 @@
 
 **Read this section first before touching any file.**
 
+---
+
+### RULE #1 — NEVER BREAK EXISTING FEATURES
+
+This is the highest-priority rule. Every time you touch code, you MUST:
+
+1. **Identify all consumers before changing any shared file.**
+   Before editing `constants.ts`, `types/index.ts`, `apiError.ts`, `apiFetch.ts`, `imageUtils.ts`,
+   any component in `src/components/`, or any API route — grep for every import site.
+   Ask yourself: "If I rename or remove this export, what breaks?"
+
+2. **Check the full call chain before modifying a function.**
+   If a function is called from 3 places, all 3 must still work after your change.
+   Run TypeScript typecheck when in doubt: `pnpm --filter @workspace/brand-os run typecheck`
+
+3. **Never delete or rename an export that other files use.**
+   Instead, add the new name while keeping the old one, then migrate in the same diff.
+
+4. **Never change an API endpoint's URL, method, or required body schema**
+   without also updating every call site in the frontend.
+
+5. **Never restructure a page component's props** without updating every usage of that component.
+
+6. **Test your changes against the existing user flows:**
+   - Brand creation wizard (BrandWizard.tsx) — multi-step form
+   - Campaign workspace (CampaignWorkspace.tsx) — post editing, image gen
+   - Dashboard — brand list + stats
+   - Auth — login, register
+
+7. **Update `PROJECT_LOG.md` at the end of every session.**
+   Add a new `## Session [date]` entry at the top with what changed and what's pending.
+
+**When in doubt: add, don't remove. Extend, don't replace. Ask before deleting.**
+
+---
+
 ### What this project is
 
 Full-stack AI brand & marketing platform. Users create brand workspaces, generate brand identities via AI, build social media campaigns, and produce on-brand images.
@@ -34,6 +70,11 @@ The frontend (`/api/*` requests) proxies to the backend via Vite config. Never r
 | Change app layout | `artifacts/brand-os/src/components/Layout.tsx` |
 | Add shared TypeScript type | `artifacts/brand-os/src/types/index.ts` |
 | Add app-wide constant | `artifacts/brand-os/src/lib/constants.ts` |
+| Add platform/size/model config | `artifacts/brand-os/src/lib/constants.ts` (PLATFORM_CONFIG, IMAGE_SIZE_OPTIONS, etc.) |
+| Add image utility (resize, bg-remove) | `artifacts/brand-os/src/lib/imageUtils.ts` |
+| Make an authenticated API call | Use `apiFetch` / `apiPost` from `artifacts/brand-os/src/lib/apiFetch.ts` |
+| Add a post card feature | `artifacts/brand-os/src/components/PostCard.tsx` |
+| Add image gen dialog feature | `artifacts/brand-os/src/components/ImageGenDialog.tsx` |
 | Add custom React hook | `artifacts/brand-os/src/hooks/` |
 | Change API types | `lib/api-spec/openapi.yaml` → then run codegen |
 | Change auth logic | `artifacts/api-server-python/app/layers/auth.py` |

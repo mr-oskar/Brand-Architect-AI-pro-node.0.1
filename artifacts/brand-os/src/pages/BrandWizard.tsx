@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import { extractColorsFromDataUrl } from "@/lib/colorExtractor";
 import { INDUSTRIES, TONE_OPTIONS } from "@/lib/constants";
+import { resizeImageFile } from "@/lib/imageUtils";
 
 const steps = [
   { id: 1, label: "Company Info" },
@@ -48,62 +49,26 @@ export default function BrandWizard() {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const result = ev.target?.result as string;
-      const img = new Image();
-      img.onload = async () => {
-        const MAX = 800;
-        let { width, height } = img;
-        if (width > MAX || height > MAX) {
-          const ratio = Math.min(MAX / width, MAX / height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d")!;
-
-        // Check for transparency — keep PNG format for transparent images
-        const isPng = file.type === "image/png";
-        let hasAlpha = false;
-        if (isPng) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const pixels = ctx.getImageData(0, 0, width, height).data;
-          for (let i = 3; i < pixels.length; i += 4) {
-            if (pixels[i] < 200) { hasAlpha = true; break; }
-          }
-        }
-
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Use PNG for transparent logos, JPEG for opaque ones
-        const outputUrl = hasAlpha
-          ? canvas.toDataURL("image/png")
-          : canvas.toDataURL("image/jpeg", 0.85);
-
-        setLogoPreview(outputUrl);
-        setForm((f) => ({ ...f, logoUrl: outputUrl }));
-
-        setExtractingColors(true);
-        try {
-          const colors = await extractColorsFromDataUrl(outputUrl, 6);
-          setExtractedColors(colors);
-        } catch (colorErr) {
-          console.warn("Color extraction failed:", colorErr);
-          setExtractedColors([]);
-        } finally {
-          setExtractingColors(false);
-        }
-      };
-      img.src = result;
-    };
-    reader.readAsDataURL(file);
+    try {
+      const outputUrl = await resizeImageFile(file, 800);
+      setLogoPreview(outputUrl);
+      setForm((f) => ({ ...f, logoUrl: outputUrl }));
+      setExtractingColors(true);
+      try {
+        const colors = await extractColorsFromDataUrl(outputUrl, 6);
+        setExtractedColors(colors);
+      } catch (colorErr) {
+        console.warn("Color extraction failed:", colorErr);
+        setExtractedColors([]);
+      } finally {
+        setExtractingColors(false);
+      }
+    } catch (err) {
+      console.error("Logo resize failed:", err);
+    }
   }
 
   function removeLogo() {
