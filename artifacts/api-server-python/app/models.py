@@ -118,7 +118,7 @@ class Brand(Base):
     __tablename__ = "brands"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(PG_UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     company_name = Column(Text, nullable=False)
     company_description = Column(Text, nullable=True)
     industry = Column(Text, nullable=False)
