@@ -46,7 +46,12 @@ def _build_allowed_origins() -> list[str]:
 
 class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
-    database_url: str = os.getenv("DATABASE_URL", "")
+    # EXTERNAL_DATABASE_URL takes priority (e.g. Neon, Supabase, etc.)
+    # Falls back to Replit-managed DATABASE_URL
+    database_url: str = (
+        os.getenv("EXTERNAL_DATABASE_URL")
+        or os.getenv("DATABASE_URL", "")
+    )
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     # JWT secret — set AUTH_JWT_SECRET or SESSION_SECRET in env for stable sessions.
