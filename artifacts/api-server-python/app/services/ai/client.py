@@ -101,11 +101,44 @@ GEMINI_MODEL_MAP = {
     "gpt-image-1": "gemini-2.5-flash-preview-image-generation",
 }
 
+# Reverse map: Gemini model → Gemini model (passthrough for already-mapped names)
+_GEMINI_NATIVE_PREFIXES = ("gemini-", "imagen-")
 
-def resolve_model(model: str) -> str:
-    if get_provider() == "gemini":
+
+def resolve_model(model: str, use_case: str = "text") -> str:
+    """
+    Resolve a model name for the active provider.
+    If a DB model preference exists for this use_case it takes priority.
+    Otherwise maps OpenAI model names → Gemini equivalents when using Gemini.
+    """
+    from app.utils.api_key_store import get_model_for_use_case
+    preferred = get_model_for_use_case(use_case)
+    if preferred:
+        return preferred
+
+    provider = get_provider()
+    if provider == "gemini":
+        # Already a native Gemini name — pass through
+        if any(model.startswith(p) for p in _GEMINI_NATIVE_PREFIXES):
+            return model
         return GEMINI_MODEL_MAP.get(model, "gemini-2.5-flash")
+
     return model
+
+
+def get_image_model() -> str:
+    """
+    Return the image generation model for the currently active provider.
+    Checks DB preference first, then falls back to hardcoded defaults.
+    """
+    from app.utils.api_key_store import get_model_for_use_case
+    preferred = get_model_for_use_case("image")
+    if preferred:
+        return preferred
+    provider = get_provider()
+    if provider == "gemini":
+        return settings.gemini_image_model or "gemini-2.5-flash-preview-image-generation"
+    return "gpt-image-1"
 
 
 # ── Text completion helper ────────────────────────────────────────────────────
@@ -119,9 +152,16 @@ def call_ai(
     """
     Send a chat completion request. Returns the text response.
     Raises RuntimeError if no AI provider is configured.
+
+    Model resolution order:
+      1. DB model preference for "text" use-case (admin panel → API Keys → Text model)
+      2. `model` argument (explicit override)
+      3. settings.ai_text_model (env / default)
+    Then mapped through resolve_model() for provider compatibility.
     """
     client = get_client()
-    chosen_model = resolve_model(model or settings.ai_text_model)
+    # resolve_model checks DB preference first via get_model_for_use_case("text")
+    chosen_model = resolve_model(model or settings.ai_text_model, use_case="text")
     max_tok = max_tokens or settings.ai_max_tokens
 
     response = client.chat.completions.create(

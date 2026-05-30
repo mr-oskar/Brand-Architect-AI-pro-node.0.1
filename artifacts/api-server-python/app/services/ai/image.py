@@ -1,14 +1,13 @@
 """
 AI Image Generation.
 
-Supports OpenAI (gpt-image-1) and Gemini image generation.
-Images are returned as bytes and stored via image_storage.py.
+Supports OpenAI (gpt-image-1 / dall-e-3) and Gemini image generation.
+The active image model is resolved from:
+  1. DB model preference (Admin → API Keys → Image model)
+  2. settings.gemini_image_model env var (Gemini only)
+  3. Hardcoded defaults (gpt-image-1 / gemini-2.5-flash-preview-image-generation)
 
-Extension points:
-  - Add DALL-E 3 support.
-  - Add Stable Diffusion via Replicate API.
-  - Add image post-processing (watermark, resize, format conversion).
-  - Add content moderation before serving generated images.
+Images are returned as bytes and stored via image_storage.py.
 """
 import base64
 import re
@@ -17,7 +16,7 @@ from typing import Optional, Literal
 
 import httpx
 
-from app.services.ai.client import get_client, get_provider, resolve_model
+from app.services.ai.client import get_client, get_provider, resolve_model, get_image_model
 from app.config import settings
 
 
@@ -51,8 +50,16 @@ def _has_arabic(text: str) -> bool:
     return bool(re.search(r"[\u0600-\u06FF]", text))
 
 
-def _get_gemini_image_model() -> str:
-    return settings.gemini_image_model or "gemini-2.0-flash-exp-image-generation"
+def _get_gemini_image_key() -> str:
+    """Return the Gemini API key from DB or env var."""
+    from app.utils.api_key_store import get_gemini_api_key
+    key = get_gemini_api_key()
+    if not key:
+        raise RuntimeError(
+            "No Gemini API key found. "
+            "Add a Gemini key via Admin → API Keys or set GEMINI_API_KEY in environment."
+        )
+    return key
 
 
 def _with_aspect_hint(prompt: str, size: Optional[ImageSize]) -> str:
@@ -68,14 +75,13 @@ def _with_aspect_hint(prompt: str, size: Optional[ImageSize]) -> str:
     return f"{prompt}\n\nAspect ratio: {hint}." if hint else prompt
 
 
-def _gemini_generate_image(parts: list[dict]) -> bytes:
+def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> bytes:
     """Call Gemini image generation API directly."""
-    gemini_key = settings.gemini_api_key
-    if not gemini_key:
-        raise RuntimeError("GEMINI_API_KEY is not set.")
+    gemini_key = _get_gemini_image_key()
 
-    model = _get_gemini_image_model()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    # Use provided model, or resolve from DB/default
+    img_model = model or get_image_model()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{img_model}:generateContent"
 
     with httpx.Client(timeout=120.0) as client:
         resp = client.post(
@@ -116,10 +122,11 @@ def generate_image_bytes(
     if provider == "gemini":
         return _gemini_generate_image([{"text": _with_aspect_hint(prompt, size)}])
 
-    # OpenAI — request b64_json but fall back to URL via _extract_image_bytes
+    # OpenAI — use DB-preferred image model
     client = get_client()
+    img_model = get_image_model()
     response = client.images.generate(
-        model="gpt-image-1",
+        model=img_model,
         prompt=prompt,
         size=size if size != "auto" else "1024x1024",
         response_format="b64_json",
@@ -148,12 +155,13 @@ def generate_image_with_logo_reference(
             {"text": _with_aspect_hint(prompt, size)},
         ])
 
-    # OpenAI images.edit
+    # OpenAI images.edit — use DB-preferred image model
     client = get_client()
+    img_model = get_image_model()
     image_bytes = base64.b64decode(base64_data)
     image_file = ("logo-reference.png", _io.BytesIO(image_bytes), mime_type)
     response = client.images.edit(
-        model="gpt-image-1",
+        model=img_model,
         image=image_file,
         prompt=prompt,
         size=size if size != "auto" else "1024x1024",
@@ -186,9 +194,10 @@ def generate_image_with_references(
         parts.append({"text": _with_aspect_hint(prompt, size)})
         return _gemini_generate_image(parts)
 
-    # OpenAI multi-image edit
+    # OpenAI multi-image edit — use DB-preferred image model
     import io as _io
     client = get_client()
+    img_model = get_image_model()
     image_files = []
     for url in reference_data_urls:
         b64 = url.split(",", 1)[-1] if "," in url else url
@@ -198,7 +207,7 @@ def generate_image_with_references(
         image_files.append((f"reference.{ext}", _io.BytesIO(img_bytes), mime))
 
     edit_params: dict = {
-        "model": "gpt-image-1",
+        "model": img_model,
         "image": image_files,
         "prompt": prompt,
         "size": size if size != "auto" else "1024x1024",
@@ -228,13 +237,6 @@ def enhance_prompt(
       'nano' — no enhancement, use prompt as-is
       'mini' — light enhancement + brand color/style injection
       'pro'  — full art direction with brand DNA, lighting, composition, typography
-
-    Brand parameters are optional. When provided they are woven into the visual
-    language of the prompt so the generated image feels on-brand.
-
-    Arabic text handling: when overlay_text or the prompt contains Arabic characters,
-    the enhancement adds specific Arabic typography instructions so the model renders
-    the text with correct letterforms and right-to-left flow.
     """
     if model == "nano":
         return prompt
@@ -297,7 +299,7 @@ def enhance_prompt(
 
         try:
             response = client.chat.completions.create(
-                model=resolve_model("gpt-4o-mini"),
+                model=resolve_model("gpt-4o-mini", use_case="text"),
                 max_completion_tokens=500,
                 messages=[{"role": "user", "content": "\n".join(parts)}],
             )
@@ -350,7 +352,7 @@ def enhance_prompt(
 
     try:
         response = client.chat.completions.create(
-            model=resolve_model("gpt-4o"),
+            model=resolve_model("gpt-4o", use_case="text"),
             max_completion_tokens=700,
             messages=[
                 {"role": "system", "content": system},

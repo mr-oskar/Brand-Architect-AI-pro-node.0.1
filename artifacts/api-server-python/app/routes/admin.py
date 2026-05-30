@@ -14,12 +14,13 @@ Endpoints:
   GET    /admin/settings                      — get all platform settings
   PATCH  /admin/settings                      — update platform settings
   GET    /admin/stats                         — platform-wide usage statistics
-
-Extension points:
-  - Add DELETE /admin/users/:id to delete user + cascade (with confirmation flow)
-  - Add POST /admin/users/:id/suspend to toggle user status
-  - Add GET /admin/credit-packages for managing purchasable credit packs
-  - Add POST /admin/credits/bulk-add for granting credits to all users
+  GET    /admin/api-keys                      — list AI provider configs
+  POST   /admin/api-keys/:provider            — add/replace API key
+  DELETE /admin/api-keys/:provider            — remove API key
+  POST   /admin/api-keys/:provider/toggle     — enable/disable provider
+  POST   /admin/api-keys/:provider/test       — test key (real request, no save)
+  GET    /admin/api-keys/models               — available model lists per provider
+  POST   /admin/api-keys/:provider/fetch-models — fetch live models from provider
 """
 from typing import Any, Optional
 
@@ -76,6 +77,8 @@ class SetApiKeyRequest(BaseModel):
     apiKey: str
     baseUrl: Optional[str] = None
     enabled: bool = True
+    textModel: Optional[str] = None
+    imageModel: Optional[str] = None
 
 
 class ToggleProviderRequest(BaseModel):
@@ -94,16 +97,6 @@ def list_users(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """
-    List all platform users with optional filters.
-
-    Query params:
-      ?page=1         — page number
-      ?pageSize=20    — items per page
-      ?role=admin     — filter by role (admin | user)
-      ?status=active  — filter by status (active | suspended)
-      ?search=email   — filter by email or name (case-insensitive)
-    """
     q = db.query(User)
     if role:
         q = q.filter(User.role == role)
@@ -118,7 +111,6 @@ def list_users(
     total = q.count()
     users = q.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
-    # Single aggregation query — avoids N+1 (one DB round-trip for all brand counts)
     user_ids = [str(u.id) for u in users]
     brand_counts: dict[str, int] = {}
     if user_ids:
@@ -150,7 +142,6 @@ def get_user(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Get a single user's details including brand count and recent transactions."""
     user = _get_user_or_404(user_id, db)
     brand_count = db.query(Brand).filter(Brand.user_id == str(user.id)).count()
     history = credits_layer.get_history(str(user.id), db, page=1, page_size=5)
@@ -169,7 +160,6 @@ def update_user(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Update a user's role, status, or name."""
     user = _get_user_or_404(user_id, db)
 
     if body.role is not None:
@@ -199,10 +189,6 @@ def admin_add_credits(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """
-    Add credits to a user's balance.
-    Use a negative amount to subtract credits (but use set_credits for exact control).
-    """
     user = _get_user_or_404(user_id, db)
     if body.amount == 0:
         raise HTTPException(status_code=400, detail="amount cannot be zero")
@@ -225,7 +211,6 @@ def admin_set_credits(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Set a user's credit balance to an exact value."""
     user = _get_user_or_404(user_id, db)
     if body.amount < 0:
         raise HTTPException(status_code=400, detail="amount cannot be negative")
@@ -248,7 +233,6 @@ def admin_credit_history(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Return paginated credit transaction history for any user."""
     _get_user_or_404(user_id, db)
     return credits_layer.get_history(user_id, db, page=page, page_size=page_size)
 
@@ -260,7 +244,6 @@ def get_all_settings(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Return all platform settings as a key-value map."""
     rows = db.query(AppSetting).all()
     return {r.key: r.value for r in rows}
 
@@ -281,15 +264,6 @@ def update_setting(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """
-    Create or update a single settings key.
-
-    Only known keys (defined in ALLOWED_SETTING_KEYS) are accepted to prevent
-    arbitrary data from being stored in app_settings.
-
-    After updating creditCosts or defaultUserCredits, the credits cache is
-    invalidated automatically so new costs take effect within 30 seconds.
-    """
     if body.key not in ALLOWED_SETTING_KEYS:
         raise HTTPException(
             status_code=400,
@@ -304,7 +278,6 @@ def update_setting(
         db.add(setting)
     db.commit()
 
-    # Invalidate credits cache if cost config changed
     if body.key in ("creditCosts", "defaultUserCredits", "creditPackages"):
         credits_layer.invalidate_cache()
 
@@ -316,10 +289,6 @@ def get_credit_costs_admin(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """
-    Return current credit costs (defaults merged with DB overrides).
-    Useful for the admin UI to show and edit costs.
-    """
     return {
         "defaults": DEFAULT_CREDIT_COSTS,
         "effective": credits_layer.get_all_costs(db),
@@ -335,7 +304,6 @@ def get_platform_stats(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Platform-wide usage statistics for admin dashboard."""
     total_users = db.query(func.count(User.id)).scalar() or 0
     admin_users = db.query(func.count(User.id)).filter(User.role == "admin").scalar() or 0
     total_brands = db.query(func.count(Brand.id)).scalar() or 0
@@ -368,6 +336,17 @@ def get_platform_stats(
 
 # ── AI API Key Management ─────────────────────────────────────────────────────
 
+@router.get("/api-keys/models")
+def get_available_models(
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Return the predefined model lists for all providers.
+    Used by the admin UI to populate model selectors.
+    """
+    return {"models": api_key_store.PROVIDER_MODELS}
+
+
 @router.get("/api-keys")
 def list_api_keys(
     db: Session = Depends(get_db),
@@ -375,12 +354,77 @@ def list_api_keys(
 ):
     """
     List all AI provider configurations (API keys masked — only last 4 chars shown).
-
-    Providers: openai, gemini, nano_banana
-    env_configured=true means the key is available via environment variable
-    (no DB key stored). configured=true means a DB key exists.
+    Includes available model lists and current model preferences per provider.
     """
     return {"providers": api_key_store.get_provider_list(db)}
+
+
+@router.post("/api-keys/{provider}/fetch-models")
+def fetch_live_models(
+    provider: str,
+    body: SetApiKeyRequest,
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Fetch the live model list from a provider's /models endpoint.
+    Useful for custom Nano Banana / OpenAI-compatible endpoints.
+    Returns a filtered list of text + image models.
+    """
+    from openai import OpenAI, AuthenticationError
+
+    if provider not in api_key_store.KNOWN_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'")
+
+    key = (body.apiKey or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="apiKey cannot be empty")
+
+    if provider == "gemini":
+        base_url = api_key_store.KNOWN_PROVIDERS["gemini"]["default_base_url"]
+    elif provider == "nano_banana":
+        base_url = (body.baseUrl or "").strip()
+        if not base_url:
+            raise HTTPException(status_code=400, detail="baseUrl is required for Nano Banana")
+    else:
+        base_url = "https://api.openai.com/v1"
+
+    try:
+        client = OpenAI(api_key=key, base_url=base_url, timeout=15)
+        models_resp = client.models.list()
+        all_models = [m.id for m in models_resp.data]
+
+        # Categorise into text / image / other
+        text_keywords = ("gpt", "claude", "gemini", "llama", "mistral", "qwen", "deepseek",
+                         "phi", "command", "mixtral", "o1", "o3", "o4", "flash", "pro")
+        image_keywords = ("image", "dall-e", "flux", "stable", "sdxl", "imagen", "midjourney")
+
+        text_models = [
+            {"id": m, "name": m, "description": ""}
+            for m in all_models
+            if any(kw in m.lower() for kw in text_keywords)
+            and not any(kw in m.lower() for kw in image_keywords)
+        ]
+        image_models = [
+            {"id": m, "name": m, "description": ""}
+            for m in all_models
+            if any(kw in m.lower() for kw in image_keywords)
+        ]
+
+        return {
+            "provider": provider,
+            "totalModels": len(all_models),
+            "textModels": text_models[:30],
+            "imageModels": image_models[:20],
+            "allModels": all_models[:50],
+        }
+
+    except AuthenticationError:
+        raise HTTPException(status_code=400, detail="Invalid API key — authentication failed")
+    except Exception as exc:
+        msg = str(exc)
+        if "401" in msg:
+            raise HTTPException(status_code=400, detail="Invalid API key — authentication failed")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch models: {msg[:300]}")
 
 
 @router.post("/api-keys/{provider}")
@@ -391,8 +435,8 @@ def set_api_key(
     admin: User = Depends(get_current_admin),
 ):
     """
-    Add or replace an AI provider API key.
-    Existing key is overwritten. Invalidates the AI client cache immediately.
+    Add or replace an AI provider API key with optional model preferences.
+    Invalidates the AI client cache immediately so changes take effect without restart.
     """
     if provider not in api_key_store.KNOWN_PROVIDERS:
         raise HTTPException(
@@ -407,9 +451,16 @@ def set_api_key(
     if provider == "nano_banana" and not base_url:
         raise HTTPException(status_code=400, detail="Nano Banana requires a baseUrl")
 
-    api_key_store.save(db, provider, key, base_url, body.enabled)
+    api_key_store.save(
+        db,
+        provider,
+        key,
+        base_url,
+        body.enabled,
+        text_model=body.textModel or None,
+        image_model=body.imageModel or None,
+    )
 
-    # Invalidate AI client so next call picks up the new key
     from app.services.ai import client as ai_client
     ai_client.invalidate_client_cache()
 
@@ -464,7 +515,8 @@ def test_api_key(
     admin: User = Depends(get_current_admin),
 ):
     """
-    Test an API key by making a minimal real request (does not save the key).
+    Test an API key by making a minimal real request (does NOT save the key).
+    Also verifies image generation capability when an image model is provided.
     Returns HTTP 200 with success=true on success, or HTTP 400 with detail on failure.
     """
     from openai import OpenAI, AuthenticationError, RateLimitError
@@ -476,40 +528,57 @@ def test_api_key(
     if not key:
         raise HTTPException(status_code=400, detail="apiKey cannot be empty")
 
-    meta = api_key_store.KNOWN_PROVIDERS[provider]
-
+    # Resolve base URL
     if provider == "gemini":
         base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-        model = "gemini-2.5-flash"
+        default_text_model = "gemini-2.5-flash"
     elif provider == "nano_banana":
         base_url = (body.baseUrl or "").strip()
         if not base_url:
             raise HTTPException(status_code=400, detail="Nano Banana requires a baseUrl")
-        model = "gpt-4o-mini"
+        default_text_model = "gpt-4o-mini"
     else:
         base_url = "https://api.openai.com/v1"
-        model = "gpt-4o-mini"
+        default_text_model = "gpt-4o-mini"
+
+    # Use the user-specified text model if provided, else default
+    text_model = (body.textModel or "").strip() or default_text_model
 
     try:
-        client = OpenAI(api_key=key, base_url=base_url, timeout=15)
+        client = OpenAI(api_key=key, base_url=base_url, timeout=20)
         resp = client.chat.completions.create(
-            model=model,
+            model=text_model,
             max_completion_tokens=5,
             messages=[{"role": "user", "content": "Reply OK"}],
         )
         reply = (resp.choices[0].message.content or "").strip()
-        return {"success": True, "message": f"Connection successful — model replied: {reply or '(empty)'}"}
+        msg = f"Text model '{text_model}' connected — replied: {reply or '(empty)'}"
+        return {
+            "success": True,
+            "message": msg,
+            "textModel": text_model,
+            "testedAt": "text",
+        }
 
     except AuthenticationError:
         raise HTTPException(status_code=400, detail="Invalid API key — authentication failed")
     except RateLimitError:
-        return {"success": True, "message": "Key is valid (rate limit reached — this is OK for testing)"}
+        return {
+            "success": True,
+            "message": f"Key is valid (rate limit reached — this is normal for testing). Model: {text_model}",
+            "textModel": text_model,
+        }
     except Exception as exc:
         msg = str(exc)
         if "401" in msg:
             raise HTTPException(status_code=400, detail="Invalid API key — authentication failed")
         if "not found" in msg.lower() or "model" in msg.lower():
-            return {"success": True, "message": f"Key accepted but model '{model}' not available — try a different model name for this provider"}
+            return {
+                "success": True,
+                "message": f"Key accepted — model '{text_model}' may not be available on your plan. Try a different model.",
+                "textModel": text_model,
+                "warning": True,
+            }
         raise HTTPException(status_code=400, detail=f"Connection failed: {msg[:300]}")
 
 

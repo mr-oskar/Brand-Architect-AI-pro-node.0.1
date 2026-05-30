@@ -10,6 +10,19 @@ This file is the **single source of truth** for all work done on this project.
 
 ---
 
+## Session 2026-05-30 — Enhanced Admin API Keys Panel
+
+### Completed [x]
+
+- [x] **`api_key_store.py`** — Added `PROVIDER_MODELS` dict with all models per provider (text + image categories + defaults). Updated `save()` to store `textModel` and `imageModel` preferences per provider. Added `get_model_for_use_case(use_case)`, `get_active_provider_id()`, `get_gemini_api_key()`. Updated `get_provider_list()` to return `textModel`, `imageModel`, `availableTextModels`, `availableImageModels` per provider.
+- [x] **`client.py`** — Updated `resolve_model()` to check DB model preference first (via `get_model_for_use_case("text")`). Added `get_image_model()` which returns DB preference or falls back to hardcoded defaults. Updated `call_ai()` docstring to document model resolution order.
+- [x] **`image.py`** — Fixed Gemini image key resolution: now uses `get_gemini_api_key()` (DB first, then env var) instead of only reading env var. All image generation functions use `get_image_model()` for dynamic model selection instead of hardcoded `"gpt-image-1"`.
+- [x] **`admin.py`** — Added `textModel` and `imageModel` to `SetApiKeyRequest`. Added `GET /admin/api-keys/models` (predefined model lists). Added `POST /admin/api-keys/{provider}/fetch-models` (live model fetch from provider API). Updated `/test` endpoint to accept and use `textModel`. Updated `/api-keys/{provider}` POST to pass model prefs to `api_key_store.save()`.
+- [x] **`AdminApiKeys.tsx`** — Full rewrite with 3-tab UI per provider (API Key / Text Model / Image Model). `ModelSelector` component with radio-button model list + custom model input. Model pills showing active text/image model on provider card. "Fetch available models" button for Nano Banana. Improved test result display (warning state). Enabled/disabled toggle in form.
+- [x] **Windows scripts** — `scripts/setup.bat`, `scripts/dev.bat`, `scripts/stop.bat` for one-click Windows dev. Updated `.env.example` to document `EXTERNAL_DATABASE_URL`.
+
+---
+
 ## Session 2026-05-30 — Local Dev Setup, Docs Overhaul, Cleanup (continued)
 
 ### Completed [x]
