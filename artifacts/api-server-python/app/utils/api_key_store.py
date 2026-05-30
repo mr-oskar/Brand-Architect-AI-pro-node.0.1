@@ -24,63 +24,33 @@ KNOWN_PROVIDERS: dict[str, dict] = {
         "description": "Official OpenAI API — GPT-4o, GPT-4.1, DALL-E 3, gpt-image-1",
         "has_base_url": False,
         "default_base_url": "https://api.openai.com/v1",
+        "docs_url": "https://platform.openai.com/api-keys",
     },
     "gemini": {
         "label": "Google Gemini",
-        "description": "Google Generative AI — Gemini 2.5 Pro / Flash + Imagen 3",
+        "description": "Google Generative AI — Gemini 2.5 Pro/Flash + Imagen 3 image generation",
         "has_base_url": False,
         "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "docs_url": "https://aistudio.google.com/apikey",
     },
-    "nano_banana": {
-        "label": "Nano Banana",
-        "description": "Custom OpenAI-compatible endpoint (e.g. local LLM, proxy, alternative provider)",
+    "custom": {
+        "label": "Custom Compatible API",
+        "description": "Any OpenAI-compatible endpoint — self-hosted models, proxies, alternative providers",
         "has_base_url": True,
         "default_base_url": "",
+        "docs_url": "",
     },
 }
 
-# ── Available models per provider per use-case ────────────────────────────────
+# Backward-compat alias: DB entries stored under "nano_banana" are read as "custom"
+_LEGACY_ALIAS = {"nano_banana": "custom"}
 
-PROVIDER_MODELS: dict[str, dict] = {
-    "openai": {
-        "text": [
-            {"id": "gpt-4o-mini",   "name": "GPT-4o Mini",   "description": "Fast & cost-effective — recommended"},
-            {"id": "gpt-4o",        "name": "GPT-4o",         "description": "Most capable, best quality"},
-            {"id": "gpt-4.1-nano",  "name": "GPT-4.1 Nano",  "description": "Fastest, lowest cost"},
-            {"id": "gpt-4.1-mini",  "name": "GPT-4.1 Mini",  "description": "Balanced speed & quality"},
-            {"id": "gpt-4.1",       "name": "GPT-4.1",        "description": "High capability"},
-            {"id": "o4-mini",       "name": "o4-mini",        "description": "Reasoning model for complex tasks"},
-        ],
-        "image": [
-            {"id": "gpt-image-1",   "name": "GPT Image 1",   "description": "Best quality — recommended"},
-            {"id": "dall-e-3",      "name": "DALL-E 3",      "description": "High quality, creative"},
-            {"id": "dall-e-2",      "name": "DALL-E 2",      "description": "Faster, lower cost"},
-        ],
-        "default_text": "gpt-4o-mini",
-        "default_image": "gpt-image-1",
-    },
-    "gemini": {
-        "text": [
-            {"id": "gemini-2.5-flash",        "name": "Gemini 2.5 Flash",       "description": "Fast & smart — recommended"},
-            {"id": "gemini-2.5-pro",          "name": "Gemini 2.5 Pro",         "description": "Most capable"},
-            {"id": "gemini-2.0-flash",        "name": "Gemini 2.0 Flash",       "description": "Previous gen, fast"},
-            {"id": "gemini-1.5-pro",          "name": "Gemini 1.5 Pro",         "description": "Previous generation pro"},
-            {"id": "gemini-1.5-flash",        "name": "Gemini 1.5 Flash",       "description": "Previous generation flash"},
-        ],
-        "image": [
-            {"id": "gemini-2.5-flash-preview-image-generation",  "name": "Gemini 2.5 Flash Image",  "description": "Latest — recommended"},
-            {"id": "gemini-2.0-flash-exp-image-generation",      "name": "Gemini 2.0 Flash Image",  "description": "Previous gen"},
-            {"id": "imagen-3.0-generate-002",                    "name": "Imagen 3",                "description": "Google Imagen 3"},
-        ],
-        "default_text": "gemini-2.5-flash",
-        "default_image": "gemini-2.5-flash-preview-image-generation",
-    },
-    "nano_banana": {
-        "text": [],   # fetched dynamically from the provider's /models endpoint
-        "image": [],  # fetched dynamically from the provider's /models endpoint
-        "default_text": "gpt-4o-mini",
-        "default_image": "gpt-image-1",
-    },
+# Default fallback models (used before any live fetch)
+PROVIDER_DEFAULTS = {
+    "openai":  {"text": "gpt-4o-mini",            "image": "gpt-image-1"},
+    "gemini":  {"text": "gemini-2.5-flash",        "image": "gemini-2.5-flash-preview-image-generation"},
+    "custom":  {"text": "gpt-4o-mini",             "image": "gpt-image-1"},
+    "nano_banana": {"text": "gpt-4o-mini",         "image": "gpt-image-1"},   # legacy
 }
 
 
@@ -108,6 +78,11 @@ def _ensure_fresh() -> None:
         _cache.clear()
         _cache.update(_load_from_db())
         _last_refresh = time.time()
+
+
+def _canonical(provider_id: str) -> str:
+    """Resolve legacy provider IDs to their canonical form."""
+    return _LEGACY_ALIAS.get(provider_id, provider_id)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -148,13 +123,12 @@ def save(
     stored: dict = dict(row.value) if row and isinstance(row.value, dict) else {}
     existing = stored.get(provider, {})
 
+    defaults = PROVIDER_DEFAULTS.get(_canonical(provider), {})
     entry: dict = {"apiKey": api_key, "enabled": enabled}
     if base_url:
         entry["baseUrl"] = base_url
-
-    # Persist model prefs — keep existing if new value not provided
-    entry["textModel"] = text_model or existing.get("textModel") or PROVIDER_MODELS.get(provider, {}).get("default_text", "")
-    entry["imageModel"] = image_model or existing.get("imageModel") or PROVIDER_MODELS.get(provider, {}).get("default_image", "")
+    entry["textModel"]  = text_model  or existing.get("textModel")  or defaults.get("text",  "")
+    entry["imageModel"] = image_model or existing.get("imageModel") or defaults.get("image", "")
 
     stored[provider] = entry
     if row:
@@ -173,6 +147,7 @@ def delete_provider(db, provider: str) -> None:
     if row and isinstance(row.value, dict):
         stored = dict(row.value)
         stored.pop(provider, None)
+        stored.pop(_LEGACY_ALIAS.get(provider, ""), None)   # also remove legacy key
         row.value = stored
         db.commit()
     invalidate()
@@ -194,46 +169,60 @@ def toggle_provider(db, provider: str, enabled: bool) -> None:
 
 # ── Credential & model resolution ─────────────────────────────────────────────
 
+def _get_entry(provider_id: str) -> dict:
+    """Return the cache entry for a provider, checking legacy aliases too."""
+    entry = _cache.get(provider_id, {})
+    if not entry:
+        for legacy, canonical in _LEGACY_ALIAS.items():
+            if canonical == provider_id:
+                entry = _cache.get(legacy, {})
+                if entry:
+                    break
+    return entry
+
+
 def get_best_provider() -> tuple[Optional[str], Optional[str], str]:
     """
     Returns (api_key, base_url, provider_type) for the best available provider.
     provider_type: "openai" | "gemini"
 
     Priority:
-      1. Nano Banana (DB)       — OpenAI-compatible, custom base URL
-      2. OpenAI (DB)            — official OpenAI
-      3. Gemini (DB)            — Google Generative AI
-      4. OPENAI_API_KEY env var
-      5. GEMINI_API_KEY env var
-      6. Replit AI integration env vars
+      1. Custom (DB)        — OpenAI-compatible, custom base URL
+      2. nano_banana (DB)   — legacy alias for custom
+      3. OpenAI (DB)        — official OpenAI
+      4. Gemini (DB)        — Google Generative AI
+      5. OPENAI_API_KEY env
+      6. GEMINI_API_KEY env
+      7. Replit AI integration
     """
     _ensure_fresh()
     from app.config import settings
 
-    # 1. Nano Banana (DB, OpenAI-compatible)
-    nb = _cache.get("nano_banana", {})
-    if nb.get("enabled") and nb.get("apiKey") and nb.get("baseUrl"):
-        return nb["apiKey"], nb["baseUrl"], "openai"
+    # 1 + 2. Custom / legacy nano_banana (OpenAI-compatible)
+    for key in ("custom", "nano_banana"):
+        e = _cache.get(key, {})
+        if e.get("enabled") and e.get("apiKey") and e.get("baseUrl"):
+            return e["apiKey"], e["baseUrl"], "openai"
 
-    # 2. OpenAI (DB)
-    oa = _cache.get("openai", {})
+    # 3. OpenAI (DB)
+    oa = _get_entry("openai")
     if oa.get("enabled") and oa.get("apiKey"):
         return oa["apiKey"], None, "openai"
 
-    # 3. Gemini (DB)
-    gm = _cache.get("gemini", {})
+    # 4. Gemini (DB)
+    gm = _get_entry("gemini")
     if gm.get("enabled") and gm.get("apiKey"):
         return gm["apiKey"], KNOWN_PROVIDERS["gemini"]["default_base_url"], "gemini"
 
-    # 4. OPENAI_API_KEY env var
+    # 5. OPENAI_API_KEY env var
     if settings.openai_api_key:
         return settings.openai_api_key, settings.openai_base_url or None, "openai"
 
-    # 5. GEMINI_API_KEY env var
+    # 6. GEMINI_API_KEY env var
     if settings.gemini_api_key:
         return settings.gemini_api_key, KNOWN_PROVIDERS["gemini"]["default_base_url"], "gemini"
 
-    # 6. Replit AI integration env vars
+    # 7. Replit AI integration
     if settings.ai_integrations_openai_api_key and settings.ai_integrations_openai_base_url:
         return (
             settings.ai_integrations_openai_api_key,
@@ -245,19 +234,20 @@ def get_best_provider() -> tuple[Optional[str], Optional[str], str]:
 
 
 def get_active_provider_id() -> Optional[str]:
-    """Return the ID of the currently active DB provider (or None for env-var providers)."""
+    """Return the canonical ID of the currently active DB provider (or None for env-var)."""
     _ensure_fresh()
     from app.config import settings
 
-    nb = _cache.get("nano_banana", {})
-    if nb.get("enabled") and nb.get("apiKey") and nb.get("baseUrl"):
-        return "nano_banana"
+    for key in ("custom", "nano_banana"):
+        e = _cache.get(key, {})
+        if e.get("enabled") and e.get("apiKey") and e.get("baseUrl"):
+            return "custom"
 
-    oa = _cache.get("openai", {})
+    oa = _get_entry("openai")
     if oa.get("enabled") and oa.get("apiKey"):
         return "openai"
 
-    gm = _cache.get("gemini", {})
+    gm = _get_entry("gemini")
     if gm.get("enabled") and gm.get("apiKey"):
         return "gemini"
 
@@ -266,27 +256,24 @@ def get_active_provider_id() -> Optional[str]:
 
 def get_model_for_use_case(use_case: str) -> Optional[str]:
     """
-    Return the preferred model for a use-case from the active provider's DB config.
+    Return the DB-stored model preference for the active provider.
     use_case: "text" | "image"
-    Returns None if no DB preference is set (caller should use built-in defaults).
+    Returns None when no preference is stored (callers use built-in defaults).
     """
     _ensure_fresh()
     provider_id = get_active_provider_id()
     if not provider_id:
         return None
-    entry = _cache.get(provider_id, {})
+    entry = _get_entry(provider_id)
     key = "textModel" if use_case == "text" else "imageModel"
     return entry.get(key) or None
 
 
 def get_gemini_api_key() -> Optional[str]:
-    """
-    Return the Gemini API key from DB (preferred) or env var.
-    Used by image.py for the direct Gemini image generation call.
-    """
+    """Return the Gemini API key from DB (preferred) or env var."""
     _ensure_fresh()
     from app.config import settings
-    gm = _cache.get("gemini", {})
+    gm = _get_entry("gemini")
     if gm.get("apiKey"):
         return gm["apiKey"]
     return settings.gemini_api_key or None
@@ -299,7 +286,7 @@ def get_provider_list(db) -> list[dict]:
 
     result = []
     for provider_id, meta in KNOWN_PROVIDERS.items():
-        entry = _cache.get(provider_id, {})
+        entry = _get_entry(provider_id)
         api_key: str = entry.get("apiKey", "")
 
         env_configured = False
@@ -308,26 +295,21 @@ def get_provider_list(db) -> list[dict]:
         elif provider_id == "gemini":
             env_configured = bool(settings.gemini_api_key)
 
-        pmodels = PROVIDER_MODELS.get(provider_id, {})
-        default_text = pmodels.get("default_text", "")
-        default_image = pmodels.get("default_image", "")
+        defaults = PROVIDER_DEFAULTS.get(provider_id, {})
 
         result.append({
-            "id": provider_id,
-            "label": meta["label"],
-            "description": meta["description"],
-            "hasBaseUrl": meta["has_base_url"],
+            "id":            provider_id,
+            "label":         meta["label"],
+            "description":   meta["description"],
+            "hasBaseUrl":    meta["has_base_url"],
             "defaultBaseUrl": meta["default_base_url"],
-            "enabled": entry.get("enabled", False) if api_key else False,
-            "configured": bool(api_key),
+            "docsUrl":       meta.get("docs_url", ""),
+            "enabled":       entry.get("enabled", False) if api_key else False,
+            "configured":    bool(api_key),
             "envConfigured": env_configured and not api_key,
-            "maskedKey": f"...{api_key[-4:]}" if len(api_key) >= 4 else ("****" if api_key else ""),
-            "baseUrl": entry.get("baseUrl", "") if meta["has_base_url"] else None,
-            # Model preferences
-            "textModel": entry.get("textModel") or default_text,
-            "imageModel": entry.get("imageModel") or default_image,
-            # Available model lists
-            "availableTextModels": pmodels.get("text", []),
-            "availableImageModels": pmodels.get("image", []),
+            "maskedKey":     f"...{api_key[-4:]}" if len(api_key) >= 4 else ("****" if api_key else ""),
+            "baseUrl":       entry.get("baseUrl", "") if meta["has_base_url"] else None,
+            "textModel":     entry.get("textModel")  or defaults.get("text",  ""),
+            "imageModel":    entry.get("imageModel") or defaults.get("image", ""),
         })
     return result

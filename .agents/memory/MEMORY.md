@@ -1,1 +1,2 @@
-- [Admin API Key Store](api-key-store.md) — AI keys stored in DB via api_key_store.py; extend KNOWN_PROVIDERS there, not in client.py; 60s TTL cache.
+- [Admin API Key Store](api-key-store.md) — AI keys in DB via api_key_store.py; KNOWN_PROVIDERS = openai/gemini/custom (nano_banana removed); live model fetch via model_fetcher.py.
+- [Model Fetcher](model-fetcher.md) — fetch_models() dispatches to OpenAI REST or Gemini native REST (/v1beta/models?key=); Gemini 'predict' method = image (Imagen); categorises textModels/imageModels.
