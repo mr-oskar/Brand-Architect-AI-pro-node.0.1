@@ -45,7 +45,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd artifacts/api-server-python && /home/runner/workspace/.pythonlibs/bin/uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
+args = "cd artifacts/api-server-python && python3 -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
 waitForPort = 8080
 
 [agent]
@@ -72,10 +72,6 @@ externalPort = 3002
 [[ports]]
 localPort = 8080
 externalPort = 8080
-
-[[ports]]
-localPort = 18565
-externalPort = 3000
 
 [userenv]
 
