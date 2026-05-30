@@ -1,0 +1,818 @@
+"""
+Admin AI Model Management + Public Model Discovery
+
+Admin routes  (require admin role):
+  GET    /admin/models/providers                   — list providers
+  POST   /admin/models/providers                   — create provider
+  PATCH  /admin/models/providers/{id}              — update provider
+  DELETE /admin/models/providers/{id}              — delete provider
+  POST   /admin/models/providers/{id}/test         — test connection
+  POST   /admin/models/providers/{id}/fetch-models — import models from API
+
+  GET    /admin/models                             — list all models
+  PATCH  /admin/models/{id}                        — update model
+  DELETE /admin/models/{id}                        — delete model
+
+  GET    /admin/plans                              — list plans
+  POST   /admin/plans                              — create plan
+  PATCH  /admin/plans/{id}                         — update plan
+  DELETE /admin/plans/{id}                         — delete plan
+  GET    /admin/plans/{id}/models                  — get plan model permissions
+  PUT    /admin/plans/{id}/models                  — set plan model permissions
+
+  GET    /admin/models/logs                        — usage logs (paginated)
+  GET    /admin/models/stats                       — usage statistics
+
+Public routes (any authenticated user):
+  GET    /ai/models?capability=image|text          — available models for current user
+"""
+import uuid
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.deps import get_current_admin, get_current_user
+from app.models import AIProvider, AIModel, AIPlan, AIPlanModel, AIUsageLog, User
+
+logger = logging.getLogger("brand-os.routes.admin-models")
+
+# ── Routers ────────────────────────────────────────────────────────────────────
+
+admin_router  = APIRouter(prefix="/admin/models", tags=["admin-ai-models"])
+public_router = APIRouter(prefix="/ai",           tags=["ai"])
+
+
+# ── Model capability detection ─────────────────────────────────────────────────
+
+_IMAGE_MODEL_PATTERNS = [
+    "dall-e", "gpt-image", "imagen", "-image-", "image-generation",
+    "image-generate", "stable-diffusion", "flux", "midjourney",
+]
+
+def _detect_capability(model_id: str) -> str:
+    ml = model_id.lower()
+    if any(p in ml for p in _IMAGE_MODEL_PATTERNS):
+        return "image"
+    return "text"
+
+
+def _nice_model_name(model_id: str) -> str:
+    """Convert 'gpt-4o-mini' → 'GPT-4o Mini' etc."""
+    parts = model_id.replace("-", " ").replace(".", " ").title()
+    for old, new in [("Gpt ", "GPT "), ("Dall ", "DALL-"), ("E-", "E-"), ("Ai ", "AI ")]:
+        parts = parts.replace(old, new)
+    return parts
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROVIDER ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_router.get("/providers")
+def list_providers(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    rows = db.query(AIProvider).order_by(AIProvider.priority, AIProvider.name).all()
+    result = []
+    for p in rows:
+        model_count = db.query(AIModel).filter(AIModel.provider_id == p.id).count()
+        result.append({
+            "id": p.id,
+            "name": p.name,
+            "providerType": p.provider_type,
+            "enabled": p.enabled,
+            "priority": p.priority,
+            "hasApiKey": bool(p.api_key),
+            "baseUrl": p.base_url,
+            "modelCount": model_count,
+            "createdAt": p.created_at.isoformat() if p.created_at else None,
+            "updatedAt": p.updated_at.isoformat() if p.updated_at else None,
+        })
+    return result
+
+
+@admin_router.post("/providers", status_code=201)
+def create_provider(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    name          = (body.get("name") or "").strip()
+    provider_type = (body.get("providerType") or "openai").lower()
+    api_key       = (body.get("apiKey") or "").strip() or None
+    base_url      = (body.get("baseUrl") or "").strip() or None
+    priority      = int(body.get("priority") or 100)
+    enabled       = bool(body.get("enabled", True))
+
+    if not name:
+        raise HTTPException(400, "Provider name is required")
+    if provider_type not in ("openai", "gemini", "custom"):
+        raise HTTPException(400, "providerType must be 'openai', 'gemini', or 'custom'")
+    if provider_type == "custom" and not base_url:
+        raise HTTPException(400, "Custom providers require a baseUrl")
+
+    row = AIProvider(
+        id=str(uuid.uuid4()),
+        name=name,
+        provider_type=provider_type,
+        api_key=api_key,
+        base_url=base_url,
+        enabled=enabled,
+        priority=priority,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    _invalidate()
+
+    # Sync legacy api_key_store for backward compat
+    _sync_legacy_key_store(db, provider_type, api_key, base_url)
+
+    return {
+        "id": row.id,
+        "name": row.name,
+        "providerType": row.provider_type,
+        "enabled": row.enabled,
+        "priority": row.priority,
+        "hasApiKey": bool(row.api_key),
+        "baseUrl": row.base_url,
+        "modelCount": 0,
+    }
+
+
+@admin_router.patch("/providers/{provider_id}")
+def update_provider(
+    provider_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    row = db.query(AIProvider).filter(AIProvider.id == provider_id).first()
+    if not row:
+        raise HTTPException(404, "Provider not found")
+
+    if "name" in body:
+        row.name = (body["name"] or "").strip() or row.name
+    if "providerType" in body:
+        pt = (body["providerType"] or "openai").lower()
+        if pt not in ("openai", "gemini", "custom"):
+            raise HTTPException(400, "Invalid providerType")
+        row.provider_type = pt
+    if "apiKey" in body:
+        row.api_key = (body["apiKey"] or "").strip() or None
+    if "baseUrl" in body:
+        row.base_url = (body["baseUrl"] or "").strip() or None
+    if "priority" in body:
+        row.priority = int(body["priority"] or 100)
+    if "enabled" in body:
+        row.enabled = bool(body["enabled"])
+
+    db.commit()
+    db.refresh(row)
+    _invalidate()
+    _sync_legacy_key_store(db, row.provider_type, row.api_key, row.base_url)
+
+    model_count = db.query(AIModel).filter(AIModel.provider_id == row.id).count()
+    return {
+        "id": row.id,
+        "name": row.name,
+        "providerType": row.provider_type,
+        "enabled": row.enabled,
+        "priority": row.priority,
+        "hasApiKey": bool(row.api_key),
+        "baseUrl": row.base_url,
+        "modelCount": model_count,
+    }
+
+
+@admin_router.delete("/providers/{provider_id}", status_code=204)
+def delete_provider(
+    provider_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    row = db.query(AIProvider).filter(AIProvider.id == provider_id).first()
+    if not row:
+        raise HTTPException(404, "Provider not found")
+    db.delete(row)
+    db.commit()
+    _invalidate()
+
+
+@admin_router.post("/providers/{provider_id}/test")
+def test_provider(
+    provider_id: str,
+    body: dict = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    body = body or {}
+    row = db.query(AIProvider).filter(AIProvider.id == provider_id).first()
+    if not row:
+        raise HTTPException(404, "Provider not found")
+    if not row.api_key:
+        raise HTTPException(400, "Provider has no API key configured")
+
+    try:
+        from app.ai.providers import build_provider
+        provider = build_provider(row)
+        test_model = (body.get("modelId") or "").strip() or None
+        result = provider.test(test_model)
+        return {"success": True, **result}
+    except PermissionError as e:
+        return {"success": False, "message": str(e)}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@admin_router.post("/providers/{provider_id}/fetch-models")
+def fetch_provider_models(
+    provider_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """
+    Fetch the list of available models from the provider's API and import
+    any new ones into ai_models.  Existing models are NOT deleted.
+    Returns a summary of what was imported.
+    """
+    row = db.query(AIProvider).filter(AIProvider.id == provider_id).first()
+    if not row:
+        raise HTTPException(404, "Provider not found")
+
+    try:
+        fetched_ids = _fetch_model_ids(row)
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch models from provider: {e}")
+
+    existing_ids = {
+        m.model_id
+        for m in db.query(AIModel.model_id).filter(AIModel.provider_id == provider_id).all()
+    }
+
+    imported = []
+    skipped  = []
+    for model_id in fetched_ids:
+        if model_id in existing_ids:
+            skipped.append(model_id)
+            continue
+        cap = _detect_capability(model_id)
+        new_model = AIModel(
+            id=str(uuid.uuid4()),
+            provider_id=provider_id,
+            model_id=model_id,
+            name=_nice_model_name(model_id),
+            capability=cap,
+            enabled=False,  # admin must explicitly enable models
+            is_default=False,
+            priority=100,
+            credit_cost=1 if cap == "text" else 10,
+        )
+        db.add(new_model)
+        imported.append({"modelId": model_id, "name": new_model.name, "capability": cap})
+
+    db.commit()
+    _invalidate()
+
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "total": len(imported),
+        "message": f"Imported {len(imported)} new model(s). {len(skipped)} already existed.",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MODEL ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_router.get("")
+def list_models(
+    capability: Optional[str] = Query(None),
+    provider_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    q = db.query(AIModel)
+    if capability:
+        q = q.filter(AIModel.capability == capability)
+    if provider_id:
+        q = q.filter(AIModel.provider_id == provider_id)
+    rows = q.order_by(AIModel.priority, AIModel.name).all()
+
+    providers_map = {
+        p.id: p
+        for p in db.query(AIProvider).filter(AIProvider.id.in_([r.provider_id for r in rows])).all()
+    }
+
+    result = []
+    for m in rows:
+        prov = providers_map.get(m.provider_id)
+        result.append({
+            "id": m.id,
+            "providerId": m.provider_id,
+            "providerName": prov.name if prov else "Unknown",
+            "providerType": prov.provider_type if prov else "openai",
+            "providerEnabled": prov.enabled if prov else False,
+            "modelId": m.model_id,
+            "name": m.name or m.model_id,
+            "description": m.description,
+            "capability": m.capability,
+            "enabled": m.enabled,
+            "isDefault": m.is_default,
+            "priority": m.priority,
+            "creditCost": m.credit_cost,
+            "createdAt": m.created_at.isoformat() if m.created_at else None,
+            "updatedAt": m.updated_at.isoformat() if m.updated_at else None,
+        })
+    return result
+
+
+@admin_router.patch("/{model_id}")
+def update_model(
+    model_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    row = db.query(AIModel).filter(AIModel.id == model_id).first()
+    if not row:
+        raise HTTPException(404, "Model not found")
+
+    if "name" in body:
+        row.name = (body["name"] or "").strip() or row.name
+    if "description" in body:
+        row.description = body["description"]
+    if "enabled" in body:
+        row.enabled = bool(body["enabled"])
+    if "isDefault" in body and body["isDefault"]:
+        # Unset other defaults for same capability
+        db.query(AIModel).filter(
+            AIModel.capability == row.capability,
+            AIModel.is_default == True,
+            AIModel.id != row.id,
+        ).update({"is_default": False})
+        row.is_default = True
+    elif "isDefault" in body:
+        row.is_default = False
+    if "priority" in body:
+        row.priority = int(body["priority"] or 100)
+    if "creditCost" in body:
+        row.credit_cost = max(0, int(body["creditCost"] or 0))
+    if "capability" in body and body["capability"] in ("text", "image"):
+        row.capability = body["capability"]
+
+    db.commit()
+    db.refresh(row)
+    _invalidate()
+
+    prov = db.query(AIProvider).filter(AIProvider.id == row.provider_id).first()
+    return {
+        "id": row.id,
+        "providerId": row.provider_id,
+        "providerName": prov.name if prov else "Unknown",
+        "providerType": prov.provider_type if prov else "openai",
+        "modelId": row.model_id,
+        "name": row.name,
+        "description": row.description,
+        "capability": row.capability,
+        "enabled": row.enabled,
+        "isDefault": row.is_default,
+        "priority": row.priority,
+        "creditCost": row.credit_cost,
+    }
+
+
+@admin_router.delete("/{model_id}", status_code=204)
+def delete_model(
+    model_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    row = db.query(AIModel).filter(AIModel.id == model_id).first()
+    if not row:
+        raise HTTPException(404, "Model not found")
+    db.delete(row)
+    db.commit()
+    _invalidate()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PLAN ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_router.get("/plans")
+def list_plans(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    rows = db.query(AIPlan).order_by(AIPlan.name).all()
+    result = []
+    for p in rows:
+        model_count = db.query(AIPlanModel).filter(AIPlanModel.plan_id == p.id, AIPlanModel.allowed == True).count()
+        result.append({
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "isDefault": p.is_default,
+            "monthlyCredits": p.monthly_credits,
+            "allowedModelCount": model_count,
+            "createdAt": p.created_at.isoformat() if p.created_at else None,
+        })
+    return result
+
+
+@admin_router.post("/plans", status_code=201)
+def create_plan(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    name    = (body.get("name") or "").strip()
+    desc    = (body.get("description") or "").strip() or None
+    is_def  = bool(body.get("isDefault", False))
+    credits = int(body.get("monthlyCredits") or 0)
+
+    if not name:
+        raise HTTPException(400, "Plan name is required")
+
+    if is_def:
+        db.query(AIPlan).filter(AIPlan.is_default == True).update({"is_default": False})
+
+    row = AIPlan(
+        id=str(uuid.uuid4()),
+        name=name,
+        description=desc,
+        is_default=is_def,
+        monthly_credits=credits,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "name": row.name, "description": row.description,
+            "isDefault": row.is_default, "monthlyCredits": row.monthly_credits, "allowedModelCount": 0}
+
+
+@admin_router.patch("/plans/{plan_id}")
+def update_plan(
+    plan_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    row = db.query(AIPlan).filter(AIPlan.id == plan_id).first()
+    if not row:
+        raise HTTPException(404, "Plan not found")
+
+    if "name" in body:
+        row.name = (body["name"] or "").strip() or row.name
+    if "description" in body:
+        row.description = body["description"]
+    if "monthlyCredits" in body:
+        row.monthly_credits = int(body["monthlyCredits"] or 0)
+    if "isDefault" in body and body["isDefault"]:
+        db.query(AIPlan).filter(AIPlan.is_default == True, AIPlan.id != plan_id).update({"is_default": False})
+        row.is_default = True
+    elif "isDefault" in body:
+        row.is_default = False
+
+    db.commit()
+    db.refresh(row)
+    count = db.query(AIPlanModel).filter(AIPlanModel.plan_id == plan_id, AIPlanModel.allowed == True).count()
+    return {"id": row.id, "name": row.name, "description": row.description,
+            "isDefault": row.is_default, "monthlyCredits": row.monthly_credits, "allowedModelCount": count}
+
+
+@admin_router.delete("/plans/{plan_id}", status_code=204)
+def delete_plan(
+    plan_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    row = db.query(AIPlan).filter(AIPlan.id == plan_id).first()
+    if not row:
+        raise HTTPException(404, "Plan not found")
+    db.delete(row)
+    db.commit()
+
+
+@admin_router.get("/plans/{plan_id}/models")
+def get_plan_models(
+    plan_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    plan = db.query(AIPlan).filter(AIPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+
+    all_models = db.query(AIModel).order_by(AIModel.capability, AIModel.priority).all()
+    links_map  = {
+        lk.model_id: lk
+        for lk in db.query(AIPlanModel).filter(AIPlanModel.plan_id == plan_id).all()
+    }
+    providers_map = {
+        p.id: p
+        for p in db.query(AIProvider).filter(AIProvider.id.in_([m.provider_id for m in all_models])).all()
+    }
+
+    result = []
+    for m in all_models:
+        link = links_map.get(m.id)
+        prov = providers_map.get(m.provider_id)
+        result.append({
+            "modelDbId": m.id,
+            "modelId": m.model_id,
+            "modelName": m.name or m.model_id,
+            "capability": m.capability,
+            "providerName": prov.name if prov else "Unknown",
+            "creditCost": m.credit_cost,
+            "allowed": link.allowed if link else False,
+            "creditCostOverride": link.credit_cost_override if link else None,
+        })
+    return {"planId": plan_id, "planName": plan.name, "models": result}
+
+
+@admin_router.put("/plans/{plan_id}/models")
+def set_plan_models(
+    plan_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """
+    Batch-set model permissions for a plan.
+    Body: { models: [{ modelDbId, allowed, creditCostOverride? }] }
+    """
+    plan = db.query(AIPlan).filter(AIPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+
+    models_input = body.get("models") or []
+    db.query(AIPlanModel).filter(AIPlanModel.plan_id == plan_id).delete()
+
+    for item in models_input:
+        model_db_id = item.get("modelDbId")
+        if not model_db_id:
+            continue
+        link = AIPlanModel(
+            plan_id=plan_id,
+            model_id=model_db_id,
+            allowed=bool(item.get("allowed", True)),
+            credit_cost_override=item.get("creditCostOverride"),
+        )
+        db.add(link)
+
+    db.commit()
+    return {"success": True, "updated": len(models_input)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USAGE LOGS + STATS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_router.get("/logs")
+def get_usage_logs(
+    capability: Optional[str] = Query(None),
+    success: Optional[bool]   = Query(None),
+    user_id: Optional[str]    = Query(None),
+    limit: int                = Query(50, ge=1, le=500),
+    offset: int               = Query(0, ge=0),
+    db: Session               = Depends(get_db),
+    _: User                   = Depends(get_current_admin),
+):
+    q = db.query(AIUsageLog)
+    if capability:
+        q = q.filter(AIUsageLog.capability == capability)
+    if success is not None:
+        q = q.filter(AIUsageLog.success == success)
+    if user_id:
+        q = q.filter(AIUsageLog.user_id == user_id)
+
+    total = q.count()
+    rows  = q.order_by(AIUsageLog.created_at.desc()).offset(offset).limit(limit).all()
+
+    items = [{
+        "id": r.id,
+        "userId": r.user_id,
+        "providerName": r.provider_name,
+        "modelName": r.model_name,
+        "modelApiId": r.model_api_id,
+        "capability": r.capability,
+        "success": r.success,
+        "errorMessage": r.error_message,
+        "creditsCharged": r.credits_charged,
+        "latencyMs": r.latency_ms,
+        "isFallback": r.is_fallback,
+        "originalModelApiId": r.original_model_api_id,
+        "createdAt": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+@admin_router.get("/stats")
+def get_usage_stats(
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_admin),
+):
+    from sqlalchemy import func
+
+    total   = db.query(AIUsageLog).count()
+    success = db.query(AIUsageLog).filter(AIUsageLog.success == True).count()
+    fail    = total - success
+
+    by_cap = db.query(AIUsageLog.capability, func.count()).group_by(AIUsageLog.capability).all()
+    by_mod = (
+        db.query(AIUsageLog.model_name, AIUsageLog.model_api_id, func.count())
+        .group_by(AIUsageLog.model_name, AIUsageLog.model_api_id)
+        .order_by(func.count().desc())
+        .limit(10)
+        .all()
+    )
+    avg_latency = db.query(func.avg(AIUsageLog.latency_ms)).filter(
+        AIUsageLog.success == True, AIUsageLog.latency_ms.isnot(None)
+    ).scalar()
+
+    return {
+        "total": total,
+        "success": success,
+        "failed": fail,
+        "successRate": round(success / total * 100, 1) if total else 0,
+        "avgLatencyMs": round(float(avg_latency), 0) if avg_latency else None,
+        "byCapability": [{"capability": c, "count": n} for c, n in by_cap],
+        "topModels": [{"modelName": name, "modelApiId": api_id, "count": cnt} for name, api_id, cnt in by_mod],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PUBLIC: Available models for current user
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@public_router.get("/models")
+def get_available_models(
+    capability: Optional[str] = Query(None),
+    db: Session               = Depends(get_db),
+    current_user: User        = Depends(get_current_user),
+):
+    """
+    Return AI models available to the current user.
+    If no plans are configured, all enabled models are returned as allowed=true.
+    If plans are configured, models are filtered/annotated by the user's plan.
+    """
+    q = db.query(AIModel).filter(AIModel.enabled == True)
+    if capability:
+        q = q.filter(AIModel.capability == capability)
+    model_rows = q.order_by(AIModel.priority, AIModel.name).all()
+
+    if not model_rows:
+        return []
+
+    providers_map = {
+        p.id: p
+        for p in db.query(AIProvider).filter(
+            AIProvider.id.in_([m.provider_id for m in model_rows]),
+            AIProvider.enabled == True,
+        ).all()
+    }
+
+    # Only include models whose provider is enabled
+    model_rows = [m for m in model_rows if m.provider_id in providers_map]
+
+    # Plan-based permission check
+    plan_links: dict[str, AIPlanModel] = {}
+    plans_exist = db.query(AIPlan).count() > 0
+    if plans_exist:
+        user_plan_id = getattr(current_user, "plan_id", None)
+        if user_plan_id:
+            plan = db.query(AIPlan).filter(AIPlan.id == user_plan_id).first()
+        else:
+            plan = db.query(AIPlan).filter(AIPlan.is_default == True).first()
+
+        if plan:
+            links = db.query(AIPlanModel).filter(AIPlanModel.plan_id == plan.id).all()
+            plan_links = {lk.model_id: lk for lk in links}
+
+    result = []
+    for m in model_rows:
+        prov = providers_map.get(m.provider_id)
+        allowed = True
+        if plans_exist and plan_links:
+            link = plan_links.get(m.id)
+            allowed = (link.allowed if link else False)
+        result.append({
+            "id": m.id,
+            "modelId": m.model_id,
+            "name": m.name or m.model_id,
+            "description": m.description,
+            "capability": m.capability,
+            "creditCost": m.credit_cost,
+            "isDefault": m.is_default,
+            "providerName": prov.name if prov else "Unknown",
+            "providerType": prov.provider_type if prov else "openai",
+            "allowed": allowed,
+        })
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Internal helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _invalidate() -> None:
+    """Bust both the ModelRegistry and legacy client caches."""
+    try:
+        from app.ai.registry import get_registry
+        get_registry().invalidate()
+    except Exception:
+        pass
+    try:
+        from app.services.ai.client import invalidate_client_cache
+        invalidate_client_cache()
+    except Exception:
+        pass
+
+
+def _sync_legacy_key_store(db, provider_type: str, api_key: Optional[str], base_url: Optional[str]) -> None:
+    """Mirror the newest key into AppSetting['apiKeys'] for backward compat."""
+    if not api_key:
+        return
+    try:
+        from app.utils.api_key_store import invalidate as aks_invalidate
+        from app.models import AppSetting
+        import json
+
+        setting = db.query(AppSetting).filter(AppSetting.key == "apiKeys").first()
+        current: dict = {}
+        if setting and setting.value:
+            current = dict(setting.value)
+
+        if provider_type == "gemini":
+            current["gemini"] = api_key
+        elif provider_type == "custom":
+            current["nanoBanana"] = api_key
+            if base_url:
+                current["nanoBananaBaseUrl"] = base_url
+        else:
+            current["openai"] = api_key
+
+        if setting:
+            setting.value = current
+        else:
+            db.add(AppSetting(key="apiKeys", value=current))
+        db.commit()
+        aks_invalidate()
+    except Exception as e:
+        logger.warning("Legacy key store sync failed (non-critical): %s", e)
+
+
+def _fetch_model_ids(provider_row: AIProvider) -> list[str]:
+    """Fetch model IDs from the provider's API."""
+    ptype = provider_row.provider_type
+    key   = provider_row.api_key or ""
+    url   = provider_row.base_url or ""
+
+    if ptype == "gemini":
+        return _fetch_gemini_models(key)
+    if ptype == "custom":
+        return _fetch_openai_compat_models(key, url)
+    return _fetch_openai_models(key)
+
+
+def _fetch_openai_models(api_key: str) -> list[str]:
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, timeout=20.0)
+    page = client.models.list()
+    return [m.id for m in page.data]
+
+
+def _fetch_openai_compat_models(api_key: str, base_url: str) -> list[str]:
+    base = base_url.rstrip("/")
+    models_url = f"{base}/models" if not base.endswith("/models") else base
+    with httpx.Client(timeout=20.0) as client:
+        resp = client.get(models_url, headers={"Authorization": f"Bearer {api_key}"})
+    resp.raise_for_status()
+    data = resp.json()
+    items = data if isinstance(data, list) else data.get("data", [])
+    return [m.get("id") or m.get("name") or "" for m in items if isinstance(m, dict)]
+
+
+def _fetch_gemini_models(api_key: str) -> list[str]:
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    with httpx.Client(timeout=20.0) as client:
+        resp = client.get(url, params={"key": api_key})
+    resp.raise_for_status()
+    data = resp.json()
+    ids = []
+    for m in data.get("models", []):
+        raw_name = m.get("name", "")  # "models/gemini-2.5-flash"
+        model_id = raw_name.split("/")[-1] if "/" in raw_name else raw_name
+        if model_id:
+            ids.append(model_id)
+    return ids

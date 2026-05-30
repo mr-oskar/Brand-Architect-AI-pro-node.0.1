@@ -8,10 +8,17 @@ Call create_all() only for NEW models added here (safe to re-run).
 Extension points:
   - Add new columns here + run SQL migration (ALTER TABLE) or use Alembic.
   - Add new models for new features (subscriptions, api_keys, teams, etc.).
+
+NEW TABLES (2026-05-30 — AI Model Architecture):
+  ai_providers     — registered AI provider credentials + priority
+  ai_models        — individual models fetched from providers + capabilities
+  ai_plans         — subscription plans (free / pro / enterprise)
+  ai_plan_models   — per-plan model permissions + credit overrides
+  ai_usage_logs    — full audit trail of every AI request
 """
 from sqlalchemy import (
-    Column, Integer, Text, DateTime, ForeignKey,
-    func, text
+    Boolean, Column, Integer, Text, DateTime, ForeignKey,
+    UniqueConstraint, func, text
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -210,3 +217,135 @@ class AppSetting(Base):
     key = Column(Text, primary_key=True)
     value = Column(JSONB, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AI MODEL ARCHITECTURE — new tables (2026-05-30)
+# Run  python3 -c "from app.models import Base; from app.database import engine; Base.metadata.create_all(engine)"
+# to create these tables (safe to re-run — existing tables are unchanged).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AIProvider(Base):
+    """
+    Registered AI provider credential.
+
+    provider_type: "openai" | "gemini" | "custom"
+    priority: lower number = higher priority (1 = first choice)
+    api_key: stored plain-text in DB (admin-only access)
+    base_url: only required for "custom" type
+    """
+    __tablename__ = "ai_providers"
+
+    id = Column(Text, primary_key=True, server_default=text("gen_random_uuid()::text"))
+    name = Column(Text, nullable=False)
+    provider_type = Column(Text, nullable=False, server_default="openai")
+    api_key = Column(Text, nullable=True)
+    base_url = Column(Text, nullable=True)
+    enabled = Column(Boolean, nullable=False, server_default=text("true"))
+    priority = Column(Integer, nullable=False, server_default=text("100"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    models = relationship("AIModel", back_populates="provider", cascade="all, delete-orphan")
+
+
+class AIModel(Base):
+    """
+    Individual AI model belonging to a provider.
+
+    model_id    : the actual model string sent to the API  ("gpt-4o-mini", "imagen-3.0-generate-002")
+    capability  : "text" | "image"
+    is_default  : one default model per capability per provider (soft rule, enforced by admin logic)
+    priority    : lower = higher priority for fallback ordering
+    credit_cost : credits deducted per successful call (0 = free)
+    """
+    __tablename__ = "ai_models"
+
+    id = Column(Text, primary_key=True, server_default=text("gen_random_uuid()::text"))
+    provider_id = Column(Text, ForeignKey("ai_providers.id", ondelete="CASCADE"), nullable=False, index=True)
+    model_id = Column(Text, nullable=False)
+    name = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    capability = Column(Text, nullable=False, server_default="text")
+    enabled = Column(Boolean, nullable=False, server_default=text("true"))
+    is_default = Column(Boolean, nullable=False, server_default=text("false"))
+    priority = Column(Integer, nullable=False, server_default=text("100"))
+    credit_cost = Column(Integer, nullable=False, server_default=text("1"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    provider = relationship("AIProvider", back_populates="models")
+    plan_links = relationship("AIPlanModel", back_populates="model", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("provider_id", "model_id", "capability", name="uq_ai_model_provider_model_cap"),
+    )
+
+
+class AIPlan(Base):
+    """
+    Subscription / permission plan.  Users are assigned a plan; plan controls which
+    models they can use and at what credit cost.
+
+    is_default: one default plan — applied to all users without an explicit plan_id.
+    """
+    __tablename__ = "ai_plans"
+
+    id = Column(Text, primary_key=True, server_default=text("gen_random_uuid()::text"))
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    is_default = Column(Boolean, nullable=False, server_default=text("false"))
+    monthly_credits = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    model_links = relationship("AIPlanModel", back_populates="plan", cascade="all, delete-orphan")
+
+
+class AIPlanModel(Base):
+    """
+    Per-plan model permission.  Controls which models each plan can access.
+
+    allowed              : False = model visible but locked (upgrade prompt shown in UI)
+    credit_cost_override : NULL means use model's default credit_cost
+    daily_limit          : NULL = unlimited per-day calls
+    monthly_limit        : NULL = unlimited per-month calls
+    """
+    __tablename__ = "ai_plan_models"
+
+    plan_id = Column(Text, ForeignKey("ai_plans.id", ondelete="CASCADE"), primary_key=True)
+    model_id = Column(Text, ForeignKey("ai_models.id", ondelete="CASCADE"), primary_key=True)
+    allowed = Column(Boolean, nullable=False, server_default=text("true"))
+    credit_cost_override = Column(Integer, nullable=True)
+    daily_limit = Column(Integer, nullable=True)
+    monthly_limit = Column(Integer, nullable=True)
+
+    plan = relationship("AIPlan", back_populates="model_links")
+    model = relationship("AIModel", back_populates="plan_links")
+
+
+class AIUsageLog(Base):
+    """
+    Immutable audit log — one row per AI request attempt.
+
+    Includes both successful and failed requests, and records fallback chains.
+    Never delete rows; archive old ones if the table grows large.
+    """
+    __tablename__ = "ai_usage_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Text, nullable=True, index=True)
+    provider_db_id = Column(Text, ForeignKey("ai_providers.id", ondelete="SET NULL"), nullable=True)
+    model_db_id = Column(Text, ForeignKey("ai_models.id",    ondelete="SET NULL"), nullable=True)
+    provider_name = Column(Text, nullable=True)   # denormalized — survives provider deletion
+    model_name = Column(Text, nullable=True)       # denormalized
+    model_api_id = Column(Text, nullable=True)     # e.g. "gpt-4o-mini"
+    capability = Column(Text, nullable=False, server_default="text")
+    success = Column(Boolean, nullable=False, server_default=text("true"))
+    error_message = Column(Text, nullable=True)
+    credits_charged = Column(Integer, nullable=False, server_default=text("0"))
+    latency_ms = Column(Integer, nullable=True)
+    is_fallback = Column(Boolean, nullable=False, server_default=text("false"))
+    original_model_api_id = Column(Text, nullable=True)  # model that was originally requested
+    request_context = Column(JSONB, nullable=True)        # extra context (brand_id, post_id, …)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
