@@ -3,7 +3,7 @@ import {
   Sparkles, PlusCircle, Menu, X,
   ChevronRight, LogOut, Building2, Loader2,
   Zap, Shield, LayoutDashboard, Home,
-  FileText, BarChart3, Layers, Settings,
+  FileText, BarChart3, Layers, Settings, Key,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -324,6 +324,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div>
               <SectionLabel>Admin</SectionLabel>
               <div className="space-y-0.5">
+                <NavItem href="/admin/api-keys" icon={Key} label="API Keys" onClick={closeMobile} />
                 <NavItem externalHref="/api/docs" icon={Shield} label="API Docs" onClick={closeMobile} />
               </div>
             </div>

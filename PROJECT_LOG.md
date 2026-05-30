@@ -10,6 +10,28 @@ This file is the **single source of truth** for all work done on this project.
 
 ---
 
+## Session 2026-05-30 — Admin API Key Management + Bug Fixes
+
+### Completed [x]
+
+- [x] **Bug fix — `brands.py`:** `generate_brand_campaign` stored result of `credits_layer.charge_credits()` as `charged` (was `NameError` if credits were enabled).
+- [x] **Bug fix — `brand_kit.py`:** `generate_brand_kit` and `generate_brand_story` now raise on AI errors instead of silently returning a placeholder template.
+- [x] **Bug fix — `BrandKit.tsx`:** `handleRegenerateKit` and `handleRegenerateStory` now use `apiFetch` (authenticated) instead of raw `fetch()`. Import added.
+- [x] **New feature — Admin API Key Management:**
+  - `app/utils/api_key_store.py` — In-memory TTL cache (60s) reading API keys from `AppSetting` key `"apiKeys"` in DB. Supports: `openai`, `gemini`, `nano_banana`. Falls back to env vars if no DB key.
+  - `app/services/ai/client.py` — Rewritten to use `api_key_store.get_best_provider()` with 60s client cache + `invalidate_client_cache()`. Priority: Nano Banana DB → OpenAI DB → Gemini DB → env vars → Replit proxy.
+  - `app/routes/admin.py` — Added 5 new routes: `GET /admin/api-keys`, `POST /admin/api-keys/{provider}`, `DELETE /admin/api-keys/{provider}`, `POST /admin/api-keys/{provider}/toggle`, `POST /admin/api-keys/{provider}/test`.
+  - `src/pages/AdminApiKeys.tsx` — New admin page: cards per provider, add/edit/delete/test/enable-disable. Only visible/accessible to admin users.
+  - `App.tsx` — Added `/admin/api-keys` route (lazy-loaded).
+  - `Layout.tsx` — Added "API Keys" nav link (with `Key` icon) in Admin section.
+- [x] **Cleanup:** Removed `attached_assets/المتطلبات_للإصلاح_1777071940544.md` and test uploads in `artifacts/api-server-python/uploads/`.
+
+### Pending [ ]
+- [ ] TypeScript typecheck reports pre-existing errors on `lib/api-client-react/dist/index.d.ts` — package exports from `src/` directly (no build). Investigate tsconfig path mapping if needed.
+- [ ] `lib/integrations/integrations-openai-ai-server/` — confirm if safe to delete (no imports found from frontend).
+
+---
+
 ## Session 2026-05-21 — Campaign Generation Overhaul
 
 ### Completed [x]

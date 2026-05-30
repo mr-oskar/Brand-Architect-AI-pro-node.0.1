@@ -1,0 +1,1 @@
+- [Admin API Key Store](api-key-store.md) — AI keys stored in DB via api_key_store.py; extend KNOWN_PROVIDERS there, not in client.py; 60s TTL cache.

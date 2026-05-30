@@ -22,6 +22,7 @@ const CampaignBriefPage = lazy(() => import("@/pages/CampaignBriefPage"));
 const CampaignWorkspace = lazy(() => import("@/pages/CampaignWorkspace"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const ComingSoon = lazy(() => import("@/pages/ComingSoon"));
+const AdminApiKeys = lazy(() => import("@/pages/AdminApiKeys"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const SignIn = lazy(() => import("@/pages/SignIn"));
 const SignUp = lazy(() => import("@/pages/SignUp"));
@@ -92,6 +93,7 @@ function ProtectedAppShell() {
             </Route>
             <Route path="/brands/:id" component={BrandKit} />
             <Route path="/campaigns/:id" component={CampaignWorkspace} />
+            <Route path="/admin/api-keys" component={AdminApiKeys} />
             <Route path="/assets">
               {() => <ComingSoon title="Asset Library" />}
             </Route>

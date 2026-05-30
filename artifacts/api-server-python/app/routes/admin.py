@@ -1,5 +1,5 @@
 """
-Admin routes — user management, credit management, platform settings.
+Admin routes — user management, credit management, platform settings, AI API keys.
 
 All routes require the requesting user to have role="admin".
 Uses get_current_admin dependency which raises HTTP 403 for non-admins.
@@ -33,6 +33,7 @@ from app.deps import get_current_admin
 from app.layers.credits import credits_layer, DEFAULT_CREDIT_COSTS
 from app.models import AppSetting, Brand, Campaign, Post, User
 from app.schemas import UserResponse
+from app.utils import api_key_store
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -69,6 +70,16 @@ class UpdateSettingsRequest(BaseModel):
     """
     key: str
     value: Any
+
+
+class SetApiKeyRequest(BaseModel):
+    apiKey: str
+    baseUrl: Optional[str] = None
+    enabled: bool = True
+
+
+class ToggleProviderRequest(BaseModel):
+    enabled: bool
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -353,6 +364,153 @@ def get_platform_stats(
             "totalInCirculation": total_credits,
         },
     }
+
+
+# ── AI API Key Management ─────────────────────────────────────────────────────
+
+@router.get("/api-keys")
+def list_api_keys(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    List all AI provider configurations (API keys masked — only last 4 chars shown).
+
+    Providers: openai, gemini, nano_banana
+    env_configured=true means the key is available via environment variable
+    (no DB key stored). configured=true means a DB key exists.
+    """
+    return {"providers": api_key_store.get_provider_list(db)}
+
+
+@router.post("/api-keys/{provider}")
+def set_api_key(
+    provider: str,
+    body: SetApiKeyRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Add or replace an AI provider API key.
+    Existing key is overwritten. Invalidates the AI client cache immediately.
+    """
+    if provider not in api_key_store.KNOWN_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider '{provider}'. Valid: {list(api_key_store.KNOWN_PROVIDERS)}",
+        )
+    key = (body.apiKey or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="apiKey cannot be empty")
+
+    base_url = (body.baseUrl or "").strip() or None
+    if provider == "nano_banana" and not base_url:
+        raise HTTPException(status_code=400, detail="Nano Banana requires a baseUrl")
+
+    api_key_store.save(db, provider, key, base_url, body.enabled)
+
+    # Invalidate AI client so next call picks up the new key
+    from app.services.ai import client as ai_client
+    ai_client.invalidate_client_cache()
+
+    label = api_key_store.KNOWN_PROVIDERS[provider]["label"]
+    return {"message": f"{label} API key saved successfully", "provider": provider}
+
+
+@router.delete("/api-keys/{provider}")
+def delete_api_key(
+    provider: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Remove an AI provider API key from the database."""
+    if provider not in api_key_store.KNOWN_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'")
+
+    api_key_store.delete_provider(db, provider)
+
+    from app.services.ai import client as ai_client
+    ai_client.invalidate_client_cache()
+
+    label = api_key_store.KNOWN_PROVIDERS[provider]["label"]
+    return {"message": f"{label} API key removed", "provider": provider}
+
+
+@router.post("/api-keys/{provider}/toggle")
+def toggle_api_key(
+    provider: str,
+    body: ToggleProviderRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Enable or disable an AI provider without changing the key."""
+    if provider not in api_key_store.KNOWN_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'")
+
+    api_key_store.toggle_provider(db, provider, body.enabled)
+
+    from app.services.ai import client as ai_client
+    ai_client.invalidate_client_cache()
+
+    label = api_key_store.KNOWN_PROVIDERS[provider]["label"]
+    action = "enabled" if body.enabled else "disabled"
+    return {"message": f"{label} {action}", "provider": provider, "enabled": body.enabled}
+
+
+@router.post("/api-keys/{provider}/test")
+def test_api_key(
+    provider: str,
+    body: SetApiKeyRequest,
+    admin: User = Depends(get_current_admin),
+):
+    """
+    Test an API key by making a minimal real request (does not save the key).
+    Returns HTTP 200 with success=true on success, or HTTP 400 with detail on failure.
+    """
+    from openai import OpenAI, AuthenticationError, RateLimitError
+
+    if provider not in api_key_store.KNOWN_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'")
+
+    key = (body.apiKey or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="apiKey cannot be empty")
+
+    meta = api_key_store.KNOWN_PROVIDERS[provider]
+
+    if provider == "gemini":
+        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+        model = "gemini-2.5-flash"
+    elif provider == "nano_banana":
+        base_url = (body.baseUrl or "").strip()
+        if not base_url:
+            raise HTTPException(status_code=400, detail="Nano Banana requires a baseUrl")
+        model = "gpt-4o-mini"
+    else:
+        base_url = "https://api.openai.com/v1"
+        model = "gpt-4o-mini"
+
+    try:
+        client = OpenAI(api_key=key, base_url=base_url, timeout=15)
+        resp = client.chat.completions.create(
+            model=model,
+            max_completion_tokens=5,
+            messages=[{"role": "user", "content": "Reply OK"}],
+        )
+        reply = (resp.choices[0].message.content or "").strip()
+        return {"success": True, "message": f"Connection successful — model replied: {reply or '(empty)'}"}
+
+    except AuthenticationError:
+        raise HTTPException(status_code=400, detail="Invalid API key — authentication failed")
+    except RateLimitError:
+        return {"success": True, "message": "Key is valid (rate limit reached — this is OK for testing)"}
+    except Exception as exc:
+        msg = str(exc)
+        if "401" in msg:
+            raise HTTPException(status_code=400, detail="Invalid API key — authentication failed")
+        if "not found" in msg.lower() or "model" in msg.lower():
+            return {"success": True, "message": f"Key accepted but model '{model}' not available — try a different model name for this provider"}
+        raise HTTPException(status_code=400, detail=f"Connection failed: {msg[:300]}")
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────

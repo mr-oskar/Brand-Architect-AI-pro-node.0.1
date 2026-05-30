@@ -252,7 +252,7 @@ export default function BrandKit() {
     setRegeneratingKit(true);
     setRegenError(null);
     try {
-      const res = await fetch(`/api/brands/${brandId}/generate-kit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const res = await apiFetch(`/api/brands/${brandId}/generate-kit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       if (!res.ok) throw new Error(await extractApiError(res, "Failed to regenerate kit"));
       await queryClient.invalidateQueries({ queryKey: getGetBrandQueryKey(brandId) });
       triggerRevealAnimation();
@@ -267,7 +267,7 @@ export default function BrandKit() {
   async function handleRegenerateStory() {
     setGeneratingStory(true);
     try {
-      const res = await fetch(`/api/brands/${brandId}/generate-story`, { method: "POST" });
+      const res = await apiFetch(`/api/brands/${brandId}/generate-story`, { method: "POST" });
       if (!res.ok) throw new Error(await extractApiError(res, "Story generation failed"));
       await queryClient.invalidateQueries({ queryKey: getGetBrandQueryKey(brandId) });
     } catch (err) {

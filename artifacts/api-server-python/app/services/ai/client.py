@@ -1,20 +1,21 @@
 """
-AI Client — lazy initialization supporting OpenAI, Gemini, and Replit AI proxy.
+AI Client — dynamic provider resolution from DB (admin panel) or env vars.
 
-Priority order:
-  1. OPENAI_API_KEY (user's own key)
-  2. GEMINI_API_KEY (Google Gemini via OpenAI-compatible endpoint)
-  3. AI_INTEGRATIONS_OPENAI_API_KEY + AI_INTEGRATIONS_OPENAI_BASE_URL (Replit proxy)
+Priority order (first configured wins):
+  1. Nano Banana DB key    — custom OpenAI-compatible endpoint
+  2. OpenAI DB key         — official OpenAI API
+  3. Gemini DB key         — Google Generative AI
+  4. OPENAI_API_KEY env    — direct OpenAI env var
+  5. GEMINI_API_KEY env    — direct Gemini env var
+  6. Replit AI proxy vars  — AI_INTEGRATIONS_OPENAI_API_KEY + BASE_URL
 
-The client is initialized on first use — the server starts even without AI keys.
-If no provider is configured, AI endpoints return HTTP 503.
+Keys are resolved on every call with a 60s in-memory cache (see api_key_store.py).
+The server starts even with no AI key — endpoints return HTTP 503 when called.
 
-Extension points:
-  - Add Anthropic: implement AnthropicClient with the same interface.
-  - Add Azure OpenAI: set OPENAI_BASE_URL to your Azure endpoint.
-  - Add model routing: override get_client() per model name.
+Add a new provider: extend KNOWN_PROVIDERS in api_key_store.py and map its
+model names in GEMINI_MODEL_MAP below if needed.
 """
-import os
+import time
 from typing import Literal
 
 from openai import OpenAI
@@ -24,61 +25,59 @@ from app.config import settings
 
 ProviderType = Literal["openai", "gemini"]
 
-_client: OpenAI | None = None
-_provider: ProviderType = "openai"
+_cached_client: OpenAI | None = None
+_cached_provider: ProviderType = "openai"
+_cache_time: float = 0
+_CLIENT_TTL = 60  # seconds — match api_key_store.CACHE_TTL
 
 
-def _resolve_client() -> tuple[OpenAI, ProviderType]:
-    """Resolve the best available AI provider."""
-    if settings.openai_api_key:
-        return (
-            OpenAI(
-                api_key=settings.openai_api_key,
-                base_url=settings.openai_base_url or None,
-            ),
-            "openai",
+def invalidate_client_cache() -> None:
+    """Force a new client on the next AI call (called after admin updates a key)."""
+    global _cache_time
+    _cache_time = 0
+
+
+def _build_client() -> tuple[OpenAI, ProviderType]:
+    """Resolve the best available AI provider and create a client."""
+    from app.utils.api_key_store import get_best_provider
+    api_key, base_url, provider_type = get_best_provider()
+
+    if not api_key:
+        raise RuntimeError(
+            "No AI provider configured. "
+            "Go to Admin → API Keys and add an OpenAI, Gemini, or Nano Banana key, "
+            "or set the OPENAI_API_KEY / GEMINI_API_KEY environment variable."
         )
-    if settings.gemini_api_key:
-        return (
-            OpenAI(
-                api_key=settings.gemini_api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            ),
-            "gemini",
-        )
-    if settings.ai_integrations_openai_api_key and settings.ai_integrations_openai_base_url:
-        return (
-            OpenAI(
-                api_key=settings.ai_integrations_openai_api_key,
-                base_url=settings.ai_integrations_openai_base_url,
-            ),
-            "openai",
-        )
-    raise RuntimeError(
-        "No AI provider configured. "
-        "Set OPENAI_API_KEY, GEMINI_API_KEY, or Replit AI integration vars."
+
+    provider: ProviderType = "gemini" if provider_type == "gemini" else "openai"
+    default_url = (
+        "https://generativelanguage.googleapis.com/v1beta/openai/"
+        if provider == "gemini"
+        else "https://api.openai.com/v1"
     )
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url or default_url,
+    )
+    return client, provider
 
 
 def get_client() -> OpenAI:
-    """Get the OpenAI client (lazy init on first call)."""
-    global _client, _provider
-    if _client is None:
-        _client, _provider = _resolve_client()
-    return _client
+    """Return a cached AI client, refreshing every 60 seconds."""
+    global _cached_client, _cached_provider, _cache_time
+    if _cached_client is None or time.time() - _cache_time > _CLIENT_TTL:
+        _cached_client, _cached_provider = _build_client()
+        _cache_time = time.time()
+    return _cached_client
 
 
 def get_provider() -> ProviderType:
-    """Get the current provider type (triggers lazy init)."""
     get_client()
-    return _provider
+    return _cached_provider
 
 
 def is_using_replit_proxy() -> bool:
-    """
-    Returns True when the only AI provider available is the Replit AI proxy.
-    The Replit proxy supports chat completions but NOT image generation.
-    """
     if settings.openai_api_key or settings.gemini_api_key:
         return False
     return bool(
@@ -88,11 +87,6 @@ def is_using_replit_proxy() -> bool:
 
 
 def image_generation_available() -> bool:
-    """
-    Returns True if the configured provider supports image generation.
-    The Replit AI proxy routes images/* through the modelfarm and returns HTTP 200,
-    so we treat it as available. Callers handle errors from the response.
-    """
     return True
 
 
@@ -104,12 +98,11 @@ GEMINI_MODEL_MAP = {
     "gpt-5-nano": "gemini-2.5-flash",
     "gpt-5-mini": "gemini-2.5-flash",
     "gpt-5.2": "gemini-2.5-pro",
-    "gpt-image-1": "gemini-2.5-flash-image-preview",
+    "gpt-image-1": "gemini-2.5-flash-preview-image-generation",
 }
 
 
 def resolve_model(model: str) -> str:
-    """Map model names to provider equivalents."""
     if get_provider() == "gemini":
         return GEMINI_MODEL_MAP.get(model, "gemini-2.5-flash")
     return model
