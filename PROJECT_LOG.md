@@ -10,25 +10,42 @@ This file is the **single source of truth** for all work done on this project.
 
 ---
 
-## Session 2026-05-30 — Admin API Key Management + Bug Fixes
+## Session 2026-05-30 — Local Dev Setup, Docs Overhaul, Cleanup (continued)
 
 ### Completed [x]
 
-- [x] **Bug fix — `brands.py`:** `generate_brand_campaign` stored result of `credits_layer.charge_credits()` as `charged` (was `NameError` if credits were enabled).
-- [x] **Bug fix — `brand_kit.py`:** `generate_brand_kit` and `generate_brand_story` now raise on AI errors instead of silently returning a placeholder template.
-- [x] **Bug fix — `BrandKit.tsx`:** `handleRegenerateKit` and `handleRegenerateStory` now use `apiFetch` (authenticated) instead of raw `fetch()`. Import added.
+- [x] **Local development setup:**
+  - `scripts/setup.sh` — First-time setup: checks Node.js 20+/pnpm/Python 3.11+, copies `.env.example`, installs JS + Python deps, creates DB tables. Safe to re-run.
+  - `scripts/dev.sh` — Daily startup: loads `.env` from root, starts Python backend (port 8080, background) + React frontend (port 5000, foreground). Ctrl+C stops both cleanly.
+  - `.env.example` — Full template with all required and optional env vars, commented.
+- [x] **Docs complete rewrite:**
+  - `DOCUMENTATION.md` — Full rewrite: local dev guide (step-by-step + Docker option + Windows note), Admin Panel → API Keys section, updated architecture/structure/API reference, cross-references to all guide files.
+  - `BACKEND_GUIDE.md` — Full rewrite: `api_key_store.py` in folder map, new "How AI client resolution works" flowchart, new "Adding an AI provider key" pattern, updated admin routes, curl examples.
+  - `FRONTEND_GUIDE.md` — Full rewrite: `AdminApiKeys.tsx` in folder map + routing table, fixed Option C to use `apiFetch` (was raw `fetch`), added admin-only page pattern, added State Management table.
+  - `replit.md` — Updated "Where to make changes" table, backend/frontend key files sections, debugging tips, "Local development" quick-start, "Recent significant changes".
+  - `CHANGELOG.md` — Added comprehensive 2026-05-30 entry covering all work.
+- [x] **Cleanup:**
+  - Removed root `main.py` (Replit placeholder — `print("Hello from repl-nix-workspace!")`)
+  - Removed `lib/integrations/integrations-openai-ai-server/` (no imports found anywhere)
+  - Added `.env`, `.env.local`, `.env.*.local` to `.gitignore` (were missing — security risk)
+- [x] **Memory:** Created `.agents/memory/MEMORY.md` + `api-key-store.md` topic file.
+
+### Session 2026-05-30 — Admin API Key Management + Bug Fixes (earlier)
+
+### Completed [x]
+
+- [x] **Bug fix — `brands.py`:** `generate_brand_campaign` NameError (`charged` variable).
+- [x] **Bug fix — `brand_kit.py`:** Silent AI fallback → now raises proper errors.
+- [x] **Bug fix — `BrandKit.tsx`:** Raw `fetch()` → `apiFetch` (authenticated).
 - [x] **New feature — Admin API Key Management:**
-  - `app/utils/api_key_store.py` — In-memory TTL cache (60s) reading API keys from `AppSetting` key `"apiKeys"` in DB. Supports: `openai`, `gemini`, `nano_banana`. Falls back to env vars if no DB key.
-  - `app/services/ai/client.py` — Rewritten to use `api_key_store.get_best_provider()` with 60s client cache + `invalidate_client_cache()`. Priority: Nano Banana DB → OpenAI DB → Gemini DB → env vars → Replit proxy.
-  - `app/routes/admin.py` — Added 5 new routes: `GET /admin/api-keys`, `POST /admin/api-keys/{provider}`, `DELETE /admin/api-keys/{provider}`, `POST /admin/api-keys/{provider}/toggle`, `POST /admin/api-keys/{provider}/test`.
-  - `src/pages/AdminApiKeys.tsx` — New admin page: cards per provider, add/edit/delete/test/enable-disable. Only visible/accessible to admin users.
-  - `App.tsx` — Added `/admin/api-keys` route (lazy-loaded).
-  - `Layout.tsx` — Added "API Keys" nav link (with `Key` icon) in Admin section.
-- [x] **Cleanup:** Removed `attached_assets/المتطلبات_للإصلاح_1777071940544.md` and test uploads in `artifacts/api-server-python/uploads/`.
+  - `app/utils/api_key_store.py` — 60s TTL DB cache + env var fallback
+  - `app/services/ai/client.py` — reads from `api_key_store`, 60s client cache
+  - `app/routes/admin.py` — 5 new routes (list/add/delete/toggle/test per provider)
+  - `src/pages/AdminApiKeys.tsx` — full admin UI (add/edit/delete/test/toggle)
+  - `App.tsx` + `Layout.tsx` — route + nav link registered
 
 ### Pending [ ]
-- [ ] TypeScript typecheck reports pre-existing errors on `lib/api-client-react/dist/index.d.ts` — package exports from `src/` directly (no build). Investigate tsconfig path mapping if needed.
-- [ ] `lib/integrations/integrations-openai-ai-server/` — confirm if safe to delete (no imports found from frontend).
+- [ ] TypeScript typecheck may report pre-existing errors on `lib/api-client-react/dist/index.d.ts` — package exports from `src/` directly without a build step. Low priority.
 
 ---
 

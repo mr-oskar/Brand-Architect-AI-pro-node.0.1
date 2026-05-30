@@ -1,6 +1,7 @@
 # Brand Architect AI Pro — Full Documentation
 
-> **Quick navigation:** [Architecture](#architecture) · [Running](#running-the-project) · [Backend API](#backend-api-reference) · [Frontend](#frontend-pages) · [Database](#database-schema) · [Environment](#environment-variables) · [Extending](#extending-the-project)
+> **Quick navigation:**
+> [Architecture](#architecture) · [Structure](#directory-structure) · [Local Dev](#local-development) · [Replit](#running-on-replit) · [Admin Panel](#admin-panel--ai-provider-keys) · [API Reference](#backend-api-reference) · [Frontend](#frontend-pages) · [Database](#database-schema) · [Env Vars](#environment-variables) · [Debugging](#common-debugging)
 
 ---
 
@@ -13,8 +14,9 @@
 - Multi-day social media campaign generation (posts, hooks, CTAs per platform)
 - On-brand image generation via `gpt-image-1`
 - Logo variant generation (black / white / grayscale)
-- Long-form content generation (blog, newsletter, email)
+- Long-form content (blog, newsletter, email)
 - Credit-based usage system (admins exempt)
+- Admin panel: manage AI provider API keys from the UI without touching env vars
 
 ---
 
@@ -22,32 +24,40 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Browser (port 5000)                   │
-│           React 19 + Vite 7 SPA (brand-os)              │
-│   Tailwind CSS 4 · TanStack Query · Wouter · Framer     │
+│                 Browser (http://localhost:5000)           │
+│           React 19 + Vite 7 SPA  (brand-os)             │
+│   Tailwind CSS 4 · TanStack Query · Wouter · Framer      │
 └────────────────────────┬────────────────────────────────┘
-                         │ /api/* proxy
-                         ▼
+                          │  /api/* proxy (Vite → :8080)
+                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Python FastAPI (port 8080)                  │
-│         api-server-python · Uvicorn · SQLAlchemy         │
-│   Routes → Services → AI Client → OpenAI/Gemini API     │
+│        Python FastAPI (http://localhost:8080)             │
+│       api-server-python · Uvicorn · SQLAlchemy           │
+│  Routes → Services → AI Client → OpenAI / Gemini API    │
 └────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
+                          │
+                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│           PostgreSQL (Replit native DB)                  │
-│   users · brands · campaigns · posts · app_settings     │
+│          PostgreSQL (local or Replit native DB)           │
+│  users · brands · campaigns · posts · app_settings       │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **Request flow:**
 1. Browser hits `http://localhost:5000/api/*`
 2. Vite dev server proxies to `http://localhost:8080/api/*`
-3. FastAPI validates JWT (from `Authorization: Bearer <token>` header or cookie)
+3. FastAPI validates JWT (`Authorization: Bearer <token>` header)
 4. Route calls service → service calls AI client
-5. AI client resolves provider: Replit AI Integration → OpenAI direct → Gemini (priority order)
+5. AI client resolves provider from DB (admin panel) or env vars
 6. Response returns JSON
+
+**AI provider resolution order** _(first configured wins)_:
+1. Nano Banana DB key (custom OpenAI-compatible endpoint)
+2. OpenAI DB key (official OpenAI API)
+3. Gemini DB key (Google Generative AI)
+4. `OPENAI_API_KEY` env var
+5. `GEMINI_API_KEY` env var
+6. Replit AI Integration proxy (`AI_INTEGRATIONS_*` env vars)
 
 ---
 
@@ -55,177 +65,307 @@
 
 ```
 /
+├── .env.example                    ← Copy to .env for local development
+├── DOCUMENTATION.md                ← This file (full reference)
+├── BACKEND_GUIDE.md                ← Backend developer guide
+├── FRONTEND_GUIDE.md               ← Frontend developer guide
+├── CHANGELOG.md                    ← Version history
+├── PROJECT_LOG.md                  ← Session-by-session work log
+├── pnpm-workspace.yaml             ← pnpm monorepo configuration
+├── pyproject.toml                  ← Python workspace configuration
+├── tsconfig.base.json              ← Shared TypeScript config
+│
+├── scripts/
+│   ├── dev.sh                      ← Start both servers locally (use this daily)
+│   ├── setup.sh                    ← First-time local setup
+│   └── post-merge.sh               ← Runs after task agent merges on Replit
+│
 ├── artifacts/
+│   │
 │   ├── api-server-python/          ← Python FastAPI backend (port 8080)
-│   │   ├── main.py                 ← Entry point (uvicorn main:app)
+│   │   ├── main.py                 ← App factory: middleware + routes + startup
 │   │   ├── requirements.txt        ← Pinned Python dependencies
+│   │   ├── EXCLUDED_FEATURES.md    ← Features intentionally not built + how to add
 │   │   └── app/
-│   │       ├── config.py           ← All env var config (pydantic-settings)
-│   │       ├── database.py         ← SQLAlchemy engine + SessionLocal
-│   │       ├── deps.py             ← FastAPI dependency injection
-│   │       ├── models.py           ← SQLAlchemy ORM models
-│   │       ├── schemas.py          ← Pydantic request/response schemas
-│   │       ├── layers/
-│   │       │   ├── auth.py         ← JWT + bcrypt auth
-│   │       │   ├── credits.py      ← Credit deduction/refund system
-│   │       │   └── payments.py     ← Stripe stub (documented, not implemented)
-│   │       ├── routes/
+│   │       ├── config.py           ← All env vars via pydantic-settings
+│   │       ├── database.py         ← SQLAlchemy engine + SessionLocal + get_db()
+│   │       ├── deps.py             ← FastAPI Depends(): get_current_user, get_current_admin
+│   │       ├── models.py           ← SQLAlchemy ORM (User, Brand, Campaign, Post, AppSetting)
+│   │       ├── schemas.py          ← Pydantic v2 request/response schemas (camelCase)
+│   │       │
+│   │       ├── middleware/
+│   │       │   └── logging.py      ← RequestLoggerMiddleware (method/path/status/timing)
+│   │       │
+│   │       ├── layers/             ← Cross-cutting concerns
+│   │       │   ├── auth.py         ← JWT + bcrypt auth (pluggable — see AuthLayer)
+│   │       │   ├── credits.py      ← Credit deduction/refund (CREDITS_ENABLED env)
+│   │       │   ├── payments.py     ← Stripe stub (documented, not implemented)
+│   │       │   └── rate_limit.py   ← slowapi rate limiter + 429 handler
+│   │       │
+│   │       ├── routes/             ← One router per feature domain
 │   │       │   ├── auth.py         ← /api/auth/*
-│   │       │   ├── brands.py       ← /api/brands/*
+│   │       │   ├── brands.py       ← /api/brands/* + AI generation
 │   │       │   ├── campaigns.py    ← /api/campaigns/*
 │   │       │   ├── posts.py        ← /api/posts/*
 │   │       │   ├── dashboard.py    ← /api/dashboard/*
-│   │       │   └── system.py       ← /api/health, /api/public-settings
-│   │       └── services/
-│   │           ├── ai/
-│   │           │   ├── client.py   ← AI provider resolver
-│   │           │   ├── brand_kit.py← Brand kit + story generation
-│   │           │   ├── campaign.py ← Campaign generation
-│   │           │   ├── post.py     ← Post regeneration / variants
-│   │           │   └── image.py    ← Image generation
-│   │           ├── image_storage.py← Local image file storage
-│   │           ├── job_store.py    ← In-memory background job tracker
-│   │           └── logo_processor.py← Logo variants + color extraction
+│   │       │   ├── admin.py        ← /api/admin/* (admin-only: users, settings, API keys)
+│   │       │   └── system.py       ← /api/health, /api/public-settings, /api/jobs/*
+│   │       │
+│   │       ├── services/
+│   │       │   ├── ai/
+│   │       │   │   ├── client.py   ← AI client resolver (reads from api_key_store)
+│   │       │   │   ├── brand_kit.py← generate_brand_kit(), generate_brand_story()
+│   │       │   │   ├── campaign.py ← analyze_brief(), generate_campaign()
+│   │       │   │   ├── post.py     ← regenerate_post(), variant, long-form
+│   │       │   │   └── image.py    ← generate_image_bytes(), enhance_prompt()
+│   │       │   ├── job_store.py    ← In-memory background job tracker
+│   │       │   ├── image_storage.py← Save/retrieve generated images locally
+│   │       │   └── logo_processor.py← Logo variants (B&W/grayscale) + color extraction
+│   │       │
+│   │       └── utils/
+│   │           ├── api_key_store.py← AI provider keys: DB cache + env fallback
+│   │           ├── pagination.py   ← PaginationParams + paginate(query, params)
+│   │           ├── ownership.py    ← get_owned_brand/campaign/post() — 404 if not owned
+│   │           └── ai_errors.py    ← handle_ai_error(e) → HTTP 503/422
 │   │
 │   └── brand-os/                   ← React frontend (port 5000)
-│       ├── index.html              ← HTML entry (dir="ltr", class="dark" — never change)
-│       ├── vite.config.ts          ← Vite config + /api proxy to :8080
+│       ├── index.html              ← HTML entry (dir="ltr" class="dark" — never change)
+│       ├── vite.config.ts          ← Vite config + /api proxy → :8080
 │       └── src/
-│           ├── App.tsx             ← Router + providers
-│           ├── main.tsx            ← React root mount
-│           ├── index.css           ← Tailwind + CSS variables (dark mode only)
-│           ├── pages/
-│           │   ├── LandingPage.tsx ← Public landing (data from /api/public-settings)
-│           │   ├── SignIn.tsx      ← Login page
-│           │   ├── SignUp.tsx      ← Registration page
-│           │   ├── Dashboard.tsx   ← Authenticated home
-│           │   ├── BrandWizard.tsx ← 5-step brand creation wizard
-│           │   ├── BrandKit.tsx    ← Brand identity view + all actions
-│           │   ├── BrandEdit.tsx   ← Edit brand name/description/logo
-│           │   ├── CampaignList.tsx← Campaigns for a brand
-│           │   ├── CampaignBriefPage.tsx ← Campaign brief form + generation
-│           │   └── CampaignWorkspace.tsx ← Campaign editor + image gen
-│           ├── components/
-│           │   ├── Layout.tsx      ← App shell (sidebar + header)
-│           │   ├── ImageLightbox.tsx← Full-screen image viewer
-│           │   ├── ScheduleCampaignDialog.tsx
-│           │   └── ui/             ← Shadcn-style UI primitives
-│           ├── contexts/
-│           │   ├── AuthContext.tsx  ← Auth state + JWT token management
-│           │   └── SiteSettingsContext.tsx ← Site-wide settings from API
+│           ├── App.tsx             ← Root: providers, router, auth guard, lazy routes
+│           ├── main.tsx            ← React DOM mount
+│           ├── index.css           ← Tailwind base + dark-mode CSS variables
+│           │
+│           ├── types/index.ts      ← Shared TypeScript types (AuthUser, BrandKit, …)
+│           │
+│           ├── lib/
+│           │   ├── constants.ts    ← App-wide constants (platform list, limits, …)
+│           │   ├── apiFetch.ts     ← Authenticated fetch wrapper (adds Bearer token)
+│           │   ├── apiError.ts     ← extractApiError(), notifyError(), notifySuccess()
+│           │   ├── colorExtractor.ts← Canvas-based color extraction from logos
+│           │   └── utils.ts        ← cn() Tailwind class merger
+│           │
 │           ├── hooks/
-│           │   └── use-toast.ts    ← Toast notification hook
-│           └── lib/
-│               ├── utils.ts        ← cn() class merging utility
-│               ├── apiError.ts     ← Error parsing + toast helpers
-│               └── colorExtractor.ts← Canvas-based color extraction from images
+│           │   ├── use-toast.ts    ← Toast notification hook
+│           │   ├── useDebounce.ts  ← Debounce a value for search inputs
+│           │   ├── useLocalStorage.ts← localStorage-backed useState
+│           │   └── useJobPoller.ts ← Poll GET /api/jobs/:id until done/failed
+│           │
+│           ├── contexts/
+│           │   ├── AuthContext.tsx  ← User session (signIn, signUp, signOut, refresh)
+│           │   └── SiteSettingsContext.tsx← Public settings + maintenance mode
+│           │
+│           ├── components/
+│           │   ├── Layout.tsx      ← App shell: sidebar, nav, user menu
+│           │   ├── PostCard.tsx    ← Post card in campaign workspace
+│           │   ├── ImageGenDialog.tsx← Image generation dialog
+│           │   ├── ImageLightbox.tsx← Full-screen image viewer
+│           │   └── ui/             ← shadcn/ui atomic components
+│           │
+│           └── pages/
+│               ├── LandingPage.tsx → /           (logged-out home)
+│               ├── SignIn.tsx      → /sign-in
+│               ├── SignUp.tsx      → /sign-up
+│               ├── Dashboard.tsx  → /dashboard
+│               ├── AppHome.tsx    → /            (logged-in home)
+│               ├── BrandWizard.tsx→ /brands/new
+│               ├── BrandEdit.tsx  → /brands/:id/edit
+│               ├── BrandKit.tsx   → /brands/:id
+│               ├── CampaignList.tsx→ /brands/:id/campaigns
+│               ├── CampaignBriefPage.tsx→ /brands/:id/campaigns/new
+│               ├── CampaignWorkspace.tsx→ /campaigns/:id
+│               └── AdminApiKeys.tsx→ /admin/api-keys  (admin only)
 │
-├── lib/
-│   ├── api-client-react/           ← Auto-generated React Query hooks (Orval)
-│   │   └── src/generated/api.ts   ← useGetBrand(), useCreateBrand(), etc.
-│   ├── api-spec/
-│   │   └── openapi.yaml           ← OpenAPI 3.0 spec (source of truth for codegen)
-│   ├── api-zod/                    ← Auto-generated Zod validation schemas
-│   └── db/
-│       └── src/schema/             ← Drizzle ORM schema (TypeScript — for migrations)
-│           ├── users.ts
-│           ├── brands.ts
-│           ├── campaigns.ts
-│           ├── posts.ts
-│           ├── admin.ts            ← app_settings + audit_logs
-│           ├── designs.ts          ← Future: Design Studio
-│           ├── social-accounts.ts  ← Future: Social publishing
-│           └── platform.ts         ← Future: Plans/subscriptions/webhooks
-│
-├── scripts/
-│   └── post-merge.sh               ← Runs after task agent merges
-│
-├── .replit                         ← Replit workflow config
-├── pyproject.toml                  ← Python workspace config
-├── pnpm-workspace.yaml             ← pnpm monorepo config
-├── replit.md                       ← AI agent quick reference (read this first)
-└── DOCUMENTATION.md                ← This file
+└── lib/
+    ├── api-spec/openapi.yaml       ← OpenAPI 3.0 spec (source of truth for codegen)
+    ├── api-client-react/           ← Auto-generated TanStack Query hooks (Orval)
+    ├── api-zod/                    ← Auto-generated Zod validation schemas
+    └── db/src/schema/              ← Drizzle ORM schema (TypeScript, for migrations)
 ```
 
 ---
 
-## Running the Project
+## Local Development
 
-### In Replit (automatic)
+### Prerequisites
 
-Both workflows start when Replit runs:
-
-| Workflow | Command | Port |
+| Tool | Minimum version | Install |
 |---|---|---|
-| `Start application` | `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` | **5000** (webview) |
-| `Python API Server` | `cd artifacts/api-server-python && uvicorn main:app --host 0.0.0.0 --port 8080 --reload` | **8080** (API) |
+| Node.js | 20.x | https://nodejs.org |
+| pnpm | 9.x | `npm install -g pnpm` |
+| Python | 3.11 | https://python.org |
+| PostgreSQL | 14+ | https://postgresql.org or Docker |
 
-### Manual first-time setup
+> **Using Docker for PostgreSQL:**
+> ```bash
+> docker run -d --name brandarchitect-db \
+>   -e POSTGRES_PASSWORD=postgres \
+>   -e POSTGRES_DB=brandarchitect \
+>   -p 5432:5432 postgres:16-alpine
+> # DATABASE_URL = postgresql://postgres:postgres@localhost:5432/brandarchitect
+> ```
 
-```bash
-# 1. Install Node.js dependencies (pnpm workspace)
-pnpm install
+---
 
-# 2. Install Python dependencies
-pip install -r artifacts/api-server-python/requirements.txt
-
-# 3. Create DB tables (run once — idempotent)
-cd artifacts/api-server-python
-python3 -c "
-from app.models import Base
-from app.database import engine
-Base.metadata.create_all(engine)
-print('Tables created OK')
-"
-cd ../..
-
-# 4. (Optional) Push TypeScript schema for Drizzle migrations
-pnpm --filter @workspace/db run push
-```
-
-### Required secrets (Replit Secrets tab)
-
-```
-AUTH_JWT_SECRET   = <any long random string — required>
-DATABASE_URL      = <auto-set by Replit DB — do not touch>
-```
-
-### Useful commands
+### Step 1 — Clone and configure
 
 ```bash
-# Interactive API docs
-open http://localhost:8080/api/docs
+git clone <your-repo-url>
+cd brand-architect-ai-pro
 
-# Frontend typecheck
+# Copy the environment template
+cp .env.example .env
+```
+
+Edit `.env` and fill in:
+```bash
+DATABASE_URL=postgresql://postgres:password@localhost:5432/brandarchitect
+AUTH_JWT_SECRET=<generate with: python3 -c "import secrets; print(secrets.token_hex(32))">
+OPENAI_API_KEY=sk-...   # or leave blank and add via Admin → API Keys after login
+```
+
+---
+
+### Step 2 — Run the setup script
+
+```bash
+bash scripts/setup.sh
+```
+
+This script:
+1. Checks Node.js, pnpm, Python are installed
+2. Installs all JS dependencies (`pnpm install`)
+3. Installs Python dependencies (`pip install -r requirements.txt`)
+4. Creates all PostgreSQL tables (`Base.metadata.create_all(engine)`)
+
+---
+
+### Step 3 — Start the development servers
+
+```bash
+bash scripts/dev.sh
+```
+
+This starts:
+- **Python API backend** on `http://localhost:8080` (hot-reload via uvicorn `--reload`)
+- **React frontend** on `http://localhost:5000` (hot-reload via Vite HMR)
+
+| URL | What |
+|---|---|
+| `http://localhost:5000` | React app (use this) |
+| `http://localhost:8080/api/docs` | Swagger UI (API explorer) |
+| `http://localhost:8080/api/health` | Backend health check |
+
+> **Windows users:** Run the two commands in separate terminals:
+> ```batch
+> # Terminal 1 — Python backend
+> cd artifacts\api-server-python
+> python -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+>
+> # Terminal 2 — React frontend
+> set PORT=5000
+> set BASE_PATH=/
+> pnpm --filter @workspace/brand-os run dev
+> ```
+
+---
+
+### Step 4 — First login
+
+1. Open `http://localhost:5000`
+2. Click **"Create one"** to register
+3. **The first registered user automatically becomes admin**
+4. Go to **Admin → API Keys** in the sidebar to add your OpenAI / Gemini key
+5. Start creating brands and generating campaigns
+
+---
+
+### Development commands
+
+```bash
+# Start both servers (daily use)
+bash scripts/dev.sh
+
+# TypeScript typecheck
 pnpm --filter @workspace/brand-os run typecheck
 
-# Regenerate API client from OpenAPI spec
+# Regenerate API client after changing openapi.yaml
 pnpm --filter @workspace/api-spec run codegen
 
 # Build frontend for production
 pnpm --filter @workspace/brand-os run build
+
+# Push Drizzle schema to DB (when DB schema changes)
+pnpm --filter @workspace/db run push
+
+# Interactive API docs
+open http://localhost:8080/api/docs    # macOS
+xdg-open http://localhost:8080/api/docs  # Linux
 ```
 
 ---
 
-## Environment Variables
+## Running on Replit
 
-| Variable | Required | Source | Description |
-|---|---|---|---|
-| `DATABASE_URL` | ✅ | Replit auto | PostgreSQL connection string |
-| `AUTH_JWT_SECRET` | ✅ | Replit Secret | JWT signing key — must be stable |
-| `AI_INTEGRATIONS_OPENAI_API_KEY` | Auto | Replit integration | Primary AI key (auto-set) |
-| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Auto | Replit integration | AI proxy URL (auto-set) |
-| `OPENAI_API_KEY` | Optional | Secret | Direct OpenAI — overrides Replit proxy |
-| `GEMINI_API_KEY` | Optional | Secret | Google Gemini fallback |
-| `CREDITS_ENABLED` | Optional | Env | Set `false` to disable credits globally |
-| `AI_TEXT_MODEL` | Optional | Env | Override text model (default: `gpt-4o-mini`) |
-| `AI_IMAGE_MODEL` | Optional | Env | Override image model (default: `gpt-image-1`) |
+Both workflows start automatically:
 
-**AI provider resolution order:**
-1. `OPENAI_API_KEY` (direct OpenAI)
-2. `GEMINI_API_KEY` (Google Gemini)
-3. `AI_INTEGRATIONS_OPENAI_API_KEY` (Replit proxy — always available)
+| Workflow | Command | Port |
+|---|---|---|
+| `Start application` | `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/brand-os run dev` | **5000** (webview) |
+| `Python API Server` | `cd artifacts/api-server-python && uvicorn main:app --host 0.0.0.0 --port 8080 --reload` | **8080** |
+
+**Required Replit Secrets** (set in the Secrets tab):
+
+| Secret | Value |
+|---|---|
+| `AUTH_JWT_SECRET` | Any long random string — **required** |
+| `DATABASE_URL` | Auto-set by Replit DB — do not override |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` | Auto-set by Replit AI Integration |
+| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Auto-set by Replit AI Integration |
+
+> On Replit, AI works automatically via the Replit AI Integration. You do **not** need to set `OPENAI_API_KEY` unless you want to use your own key (which takes priority over the proxy).
+
+---
+
+## Admin Panel — AI Provider Keys
+
+Admin users can manage AI provider API keys directly from the app without touching environment variables or restarting the server.
+
+**URL:** `/admin/api-keys` → visible as **Admin → API Keys** in the sidebar (admin only)
+
+### Supported providers
+
+| Priority | Provider | Description |
+|---|---|---|
+| 1 | 🍌 Nano Banana | Custom OpenAI-compatible endpoint — specify key + base URL |
+| 2 | 🤖 OpenAI | Official OpenAI API (GPT-4o, DALL-E 3, Whisper) |
+| 3 | ✨ Google Gemini | Google Generative AI via OpenAI-compatible interface |
+| — | Env vars | Fallback if no DB keys are configured |
+
+Keys are stored in the `app_settings` table (key: `"apiKeys"`) and take effect within **60 seconds** (TTL cache) without a restart.
+
+### How keys flow from UI to AI calls
+
+```
+Admin Panel
+  └─ POST /api/admin/api-keys/{provider}
+       └─ app_settings table (DB, key="apiKeys")
+            └─ api_key_store.py (60s in-memory cache)
+                 └─ services/ai/client.py (60s cached OpenAI client)
+                      └─ AI calls (brand kit, campaign, images, …)
+```
+
+### Admin API endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/admin/api-keys` | List all providers (keys masked) |
+| `POST` | `/api/admin/api-keys/{provider}` | Add or replace a key |
+| `DELETE` | `/api/admin/api-keys/{provider}` | Remove a key |
+| `POST` | `/api/admin/api-keys/{provider}/toggle` | Enable / disable a provider |
+| `POST` | `/api/admin/api-keys/{provider}/test` | Test a key without saving |
+
+Provider IDs: `openai`, `gemini`, `nano_banana`
 
 ---
 
@@ -239,9 +379,9 @@ pnpm --filter @workspace/brand-os run build
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
 | `POST` | `/auth/register` | ❌ | Register. First user → admin. Returns `{user, token}` |
-| `POST` | `/auth/login` | ❌ | Login with email+password. Returns `{user, token}` |
+| `POST` | `/auth/login` | ❌ | Login. Returns `{user, token}` |
 | `POST` | `/auth/logout` | ❌ | Clears auth cookie |
-| `GET` | `/auth/me` | ✅ | Returns current user |
+| `GET` | `/auth/me` | ✅ | Current user |
 
 ### Brands (`/api/brands/`)
 
@@ -255,59 +395,51 @@ pnpm --filter @workspace/brand-os run build
 | `POST` | `/brands/:id/generate-kit` | 50 | Generate full AI brand kit |
 | `POST` | `/brands/:id/generate-story` | 10 | Generate/regenerate brand story |
 | `POST` | `/brands/:id/generate-logo-variants` | 0 | B&W/grayscale logo variants |
-| `POST` | `/brands/:id/generate-content` | 5 | Long-form content (blog/email/newsletter) |
+| `POST` | `/brands/:id/generate-content` | 5 | Long-form content |
 | `GET` | `/brands/:id/stats` | 0 | Campaign + post counts |
-| `GET` | `/brands/:id/campaigns` | 0 | List campaigns for brand |
-| `POST` | `/brands/:id/generate-campaign` | 60 | Async campaign generation → returns `jobId` |
-| `POST` | `/brands/:id/campaign-brief-job` | 60 | Full pipeline with step progress → returns `jobId` |
+| `GET` | `/brands/:id/campaigns` | 0 | List campaigns |
+| `POST` | `/brands/:id/generate-campaign` | 60 | Async campaign → returns `jobId` |
+| `POST` | `/brands/:id/campaign-brief-job` | 60 | Full pipeline with step progress |
 
-### Campaigns (`/api/campaigns/`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/campaigns/:id` | Get campaign + all posts |
-
-### Posts (`/api/posts/`)
+### Campaigns & Posts
 
 | Method | Endpoint | Credits | Description |
 |---|---|---|---|
+| `GET` | `/campaigns/:id` | 0 | Get campaign + all posts |
 | `GET` | `/posts/:id` | 0 | Get single post |
 | `PATCH` | `/posts/:id` | 0 | Update post fields |
 | `DELETE` | `/posts/:id` | 0 | Delete post |
-| `POST` | `/posts/:id/generate-image` | 10 | Generate AI image for post |
-| `POST` | `/posts/:id/restore-image` | 0 | Restore image from history |
+| `POST` | `/posts/:id/generate-image` | 10 | Generate AI image |
+| `POST` | `/posts/:id/restore-image` | 0 | Restore from image history |
 | `POST` | `/posts/:id/regenerate` | 8 | Regenerate post text |
-| `POST` | `/posts/:id/generate-variant` | 5 | Create A/B variant |
-| `POST` | `/posts/:id/generate-content` | 5 | Long-form content from post hook |
-| `POST` | `/posts/campaigns/:campaign_id/generate-all-images` | 10×n | Bulk image gen → returns `jobId` |
+| `POST` | `/posts/:id/generate-variant` | 5 | A/B variant |
+| `POST` | `/posts/:id/generate-content` | 5 | Long-form from post hook |
+| `POST` | `/campaigns/:id/generate-all-images` | 10× | Bulk image gen → `jobId` |
 
-### System (`/api/`)
+### Admin (`/api/admin/`) — requires admin role
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/health` | ❌ | Health check + DB status |
-| `GET` | `/public-settings` | ❌ | Landing page config + feature flags |
-| `GET` | `/jobs/:id` | ✅ | Poll background job status |
-| `GET` | `/credit-costs` | ✅ | Current credit cost table |
-| `GET` | `/dashboard/summary` | ✅ | Aggregated stats |
-| `GET` | `/storage/images/objects/uploads/:id` | ❌ | Serve generated image |
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/admin/users` | List all users |
+| `GET` | `/admin/stats` | Platform-wide stats |
+| `POST` | `/admin/users/:id/credits` | Set user credits |
+| `GET` | `/admin/settings` | Get all settings |
+| `PUT` | `/admin/settings` | Update a setting |
+| `GET` | `/admin/api-keys` | List AI provider keys (masked) |
+| `POST` | `/admin/api-keys/:provider` | Add/replace AI provider key |
+| `DELETE` | `/admin/api-keys/:provider` | Remove AI provider key |
+| `POST` | `/admin/api-keys/:provider/toggle` | Enable/disable provider |
+| `POST` | `/admin/api-keys/:provider/test` | Test key without saving |
 
-### Background Job polling
+### System
 
-Long operations return `{ jobId: "..." }`. Poll until `status` is `completed` or `failed`:
-
-```bash
-GET /api/jobs/:id
-# Response:
-{
-  "id": "abc-123",
-  "status": "running",          # running | completed | failed
-  "progress": 0.65,             # 0.0 – 1.0
-  "step": "Generating posts…",  # human-readable current step
-  "result": null,               # populated when completed
-  "error": null                 # populated when failed
-}
-```
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Health check + DB status |
+| `GET` | `/public-settings` | Site config + feature flags |
+| `GET` | `/jobs/:id` | Poll background job status |
+| `GET` | `/credit-costs` | Current credit cost table |
+| `GET` | `/storage/images/objects/uploads/:id` | Serve stored image |
 
 ---
 
@@ -315,166 +447,122 @@ GET /api/jobs/:id
 
 | Route | Page | Auth | Description |
 |---|---|---|---|
-| `/` | `LandingPage` or `Dashboard` | Optional | Landing if logged out, Dashboard if in |
-| `/sign-in` | `SignIn` | ❌ | Email + password login |
-| `/sign-up` | `SignUp` | ❌ | Registration |
-| `/brands/new` | `BrandWizard` | ✅ | 5-step new brand wizard |
-| `/brands/:id` | `BrandKit` | ✅ | Brand identity + all AI actions |
+| `/` | `LandingPage` / `AppHome` | Auto | Landing (logged out) or home (logged in) |
+| `/sign-in` | `SignIn` | ❌ | Login form |
+| `/sign-up` | `SignUp` | ❌ | Registration form |
+| `/dashboard` | `Dashboard` | ✅ | Brand list + stats overview |
+| `/brands/new` | `BrandWizard` | ✅ | 5-step brand creation wizard |
 | `/brands/:id/edit` | `BrandEdit` | ✅ | Edit brand name/description/logo |
-| `/brands/:id/campaigns` | `CampaignList` | ✅ | Campaign list for brand |
-| `/brands/:id/campaigns/new` | `CampaignBriefPage` | ✅ | Brief form + campaign generation |
-| `/campaigns/:id` | `CampaignWorkspace` | ✅ | Full campaign editor + image generation |
+| `/brands/:id` | `BrandKit` | ✅ | Brand identity + all AI actions |
+| `/brands/:id/campaigns` | `CampaignList` | ✅ | All campaigns for a brand |
+| `/brands/:id/campaigns/new` | `CampaignBriefPage` | ✅ | Brief form + async generation |
+| `/campaigns/:id` | `CampaignWorkspace` | ✅ | Campaign editor + image gen |
+| `/admin/api-keys` | `AdminApiKeys` | ✅ Admin | Manage AI provider keys |
 
 ---
 
 ## Database Schema
 
-The Python backend uses **SQLAlchemy models** (`app/models.py`) as the source of truth. TypeScript Drizzle schemas in `lib/db/src/schema/` mirror these and are used only for `pnpm --filter @workspace/db run push` migrations.
+**Tables** (managed by SQLAlchemy ORM in `app/models.py`, migrations via Drizzle in `lib/db/`):
 
-### `users`
-| Column | Type | Notes |
+| Table | Key columns | Notes |
 |---|---|---|
-| `id` | UUID PK | Auto-generated |
-| `email` | text UNIQUE | Indexed |
-| `password_hash` | text | bcrypt |
-| `name` | text | |
-| `role` | text | `user` or `admin` (first registered = admin) |
-| `credits` | integer | Default 100 |
+| `users` | `id, email, name, role, credits` | `role`: `"user"` \| `"admin"` |
+| `brands` | `id, user_id, company_name, brand_kit (jsonb)` | `brand_kit` stores full AI output |
+| `campaigns` | `id, brand_id, title, platform, days, posts_per_day` | |
+| `posts` | `id, campaign_id, day, platform, content, image_url` | |
+| `app_settings` | `key (varchar), value (jsonb)` | `"apiKeys"`, `"site"`, `"features"`, … |
 
-### `brands`
-| Column | Type | Notes |
+**Key `app_settings` entries:**
+
+| Key | Value shape | Used by |
 |---|---|---|
-| `id` | serial PK | |
-| `user_id` | UUID FK | |
-| `company_name` | text | |
-| `company_description` | text | |
-| `industry` | text | |
-| `website_url` | text | |
-| `logo_url` | text | Stored file URL |
-| `logo_variants` | JSONB | `{original, black, white, grayscale}` |
-| `brand_kit` | JSONB | Full AI brand identity object |
-| `status` | text | `draft` → `kit_ready` → `active` |
-
-### `campaigns`
-| Column | Type | Notes |
-|---|---|---|
-| `id` | serial PK | |
-| `brand_id` | FK | |
-| `title` | text | |
-| `strategy` | text | Campaign strategy |
-| `days` | JSONB | Array of campaign day objects |
-| `schedule_start` | timestamptz | |
-| `schedule_end` | timestamptz | |
-
-### `posts`
-| Column | Type | Notes |
-|---|---|---|
-| `id` | serial PK | |
-| `campaign_id` | FK | |
-| `day` | integer | Day number |
-| `caption` | text | |
-| `hook` | text | |
-| `cta` | text | |
-| `hashtags` | text[] | |
-| `image_prompt` | text | AI image prompt |
-| `image_url` | text | Generated image URL |
-| `image_history` | JSONB | Previous image versions |
-| `platform` | text | `instagram` / `twitter` / `linkedin` / `facebook` |
-| `publish_status` | text | `draft` / `scheduled` / `published` / `failed` |
-
-### `app_settings`
-Key-value store for admin-configurable settings (JSONB values).
-
-| Key | Description |
-|---|---|
-| `site` | `{siteName, tagline, primaryColor, defaultLanguage}` |
-| `features` | Feature flags `{imageGeneration, socialPublishing, analytics}` |
-| `landing` | Landing page content (stats, projects, features, pricing) |
-| `maintenance` | `{enabled, message}` |
-| `creditCosts` | Override default credit costs per action |
-| `defaultUserCredits` | Override default credits for new users |
+| `"apiKeys"` | `{openai: {apiKey, enabled}, gemini: {…}, nano_banana: {…, baseUrl}}` | `api_key_store.py` |
+| `"site"` | `{siteName, tagline, primaryColor}` | `SiteSettingsContext` |
+| `"features"` | `{enableRegistration: bool}` | Auth routes |
+| `"creditCosts"` | `{"brand.generate-kit": 50, …}` | `credits.py` |
 
 ---
 
-## Credits System
+## Environment Variables
 
-Each AI action deducts credits. Admins always bypass the check. First registered user is automatically admin.
+| Variable | Required | Source | Description |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ | DB / `.env` | PostgreSQL connection string |
+| `AUTH_JWT_SECRET` | ✅ | Secret / `.env` | JWT signing key — must be stable across restarts |
+| `OPENAI_API_KEY` | ⬜ | Optional | Direct OpenAI key (overrides Replit proxy and DB keys) |
+| `GEMINI_API_KEY` | ⬜ | Optional | Google Gemini fallback |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` | Auto | Replit | Auto-set by Replit AI Integration |
+| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Auto | Replit | Auto-set by Replit AI Integration |
+| `CREDITS_ENABLED` | ⬜ | Optional | Set `false` to disable credit gating (dev only) |
+| `AI_TEXT_MODEL` | ⬜ | Optional | Override text model (default: `gpt-4o-mini`) |
+| `AI_MAX_TOKENS` | ⬜ | Optional | Override max tokens (default: `8192`) |
+| `AI_TEMPERATURE` | ⬜ | Optional | Override temperature `0.0–1.0` (default: `0.7`) |
+| `ALLOWED_ORIGINS` | ⬜ | Optional | Comma-separated CORS origins for custom domains |
 
-| Action | Default Cost |
+> **Note:** `OPENAI_API_KEY` and `GEMINI_API_KEY` can also be set from the Admin Panel (Admin → API Keys) without touching env vars. DB keys are checked first.
+
+---
+
+## Credit Costs Reference
+
+| Action | Cost |
 |---|---|
-| Generate brand kit | 50 |
-| Generate brand story | 10 |
-| Generate brand long-form content | 5 |
-| Generate campaign | 60 |
-| Generate post image | 10 |
-| Regenerate post | 8 |
-| Generate post variant | 5 |
-| Generate post long-form content | 5 |
+| Generate brand kit | 50 credits |
+| Generate brand story | 10 credits |
+| Long-form content (brand or post) | 5 credits |
+| Generate campaign | 60 credits |
+| Generate post image | 10 credits |
+| Regenerate post text | 8 credits |
+| Generate post variant | 5 credits |
 
-Default new user balance: **100 credits**
+Admins pay 0 credits. Disable globally: `CREDITS_ENABLED=false`.
 
-Disable credits: `CREDITS_ENABLED=false` in environment.
+---
+
+## Common Debugging
+
+| Symptom | Check |
+|---|---|
+| AI routes return 503 | Add an API key via **Admin → API Keys**, or set `OPENAI_API_KEY` in env |
+| All routes return 401 | `AUTH_JWT_SECRET` must match what tokens were signed with |
+| Credits blocking dev | Set `CREDITS_ENABLED=false` or login as admin |
+| 429 Too Many Requests | Rate limit per IP — wait 1 minute or use a different IP |
+| DB tables missing | Run `bash scripts/setup.sh` or manually: `cd artifacts/api-server-python && python3 -c "from app.models import Base; from app.database import engine; Base.metadata.create_all(engine)"` |
+| Frontend blank | Check `Start application` workflow logs; ensure `PORT=5000 BASE_PATH=/` are set |
+| API proxy not working | Ensure Python API Server is running on port 8080; check logs |
+| Vite throws `PORT not set` | Must run with `PORT=5000 BASE_PATH=/ pnpm run dev` — use `scripts/dev.sh` |
+| Sessions reset on restart | `AUTH_JWT_SECRET` not set — it generates a random ephemeral key each time |
 
 ---
 
 ## Extending the Project
 
-### Add a new backend endpoint
+See **`BACKEND_GUIDE.md`** for:
+- Adding a new API endpoint (step-by-step)
+- Adding a new middleware
+- Adding a new AI service
+- Swapping the auth layer
+- Adding an AI provider
 
-```
-1. app/models.py            → Add SQLAlchemy model (if new table needed)
-2. app/schemas.py           → Add Pydantic request/response schemas
-3. app/services/my_feat.py  → Business logic (no FastAPI imports here)
-4. app/routes/my_feat.py    → Create APIRouter with routes
-5. main.py                  → app.include_router(my_feat.router, prefix="/api")
-```
+See **`FRONTEND_GUIDE.md`** for:
+- Adding a new page/route
+- Calling API endpoints (generated hooks vs. raw fetch)
+- Polling background jobs
+- Adding a reusable component
 
-### Add a new frontend page
-
-```
-1. src/pages/MyPage.tsx     → Create page component
-2. src/App.tsx              → Add <Route path="/my-page" component={MyPage} />
-3. src/components/Layout.tsx→ Add nav link if needed
-```
-
-### Regenerate frontend API client
-
-After changing `lib/api-spec/openapi.yaml`:
-
-```bash
-pnpm --filter @workspace/api-spec run codegen
-# Regenerates lib/api-client-react and lib/api-zod
-```
-
-### Swap auth provider (e.g. Clerk)
-
-```
-1. Create app/layers/clerk_auth.py implementing same interface as AuthLayer
-2. In app/deps.py: auth_layer = ClerkAuthLayer()
-   → No routes need to change
-```
-
-### Add AI provider
-
-Edit `artifacts/api-server-python/app/services/ai/client.py`:
-- Add to `_resolve_client()` priority chain
-- Add model name mapping
+See **`EXCLUDED_FEATURES.md`** for intentionally unbuilt features and how to add them.
 
 ---
 
-## Excluded Features (Future Implementation)
+## Related Documentation
 
-Full guides in `artifacts/api-server-python/EXCLUDED_FEATURES.md`:
-
-| Feature | Status | Guide |
-|---|---|---|
-| Stripe payments | Stub in `payments.py` | Section 2.1 |
-| OAuth login (Google/GitHub) | Not started | Section 1.1 |
-| Admin panel | Schema ready (`admin.ts`) | Section 3 |
-| Social media publishing | Schema ready (`social-accounts.ts`) | Section 4.1 |
-| Post scheduling | Column exists (`scheduled_at`) | Section 4.2 |
-| Subscription tiers | Schema ready (`platform.ts`) | Section 2.3 |
-| PDF brand book export | Not started | Section 8 |
-| Asset library | Not started | Section 6 |
-| Multi-tenant teams | Not started | Section 13 |
-| Outbound webhooks | Schema ready (`platform.ts`) | Section 12 |
+| File | Purpose |
+|---|---|
+| `DOCUMENTATION.md` | ← You are here — full reference |
+| `BACKEND_GUIDE.md` | Backend patterns + how-to guide |
+| `FRONTEND_GUIDE.md` | Frontend patterns + how-to guide |
+| `CHANGELOG.md` | Version-by-version change history |
+| `PROJECT_LOG.md` | Session-by-session work log (newest first) |
+| `EXCLUDED_FEATURES.md` | Features not built yet + instructions |
+| `replit.md` | Agent quick-start + Replit-specific config |

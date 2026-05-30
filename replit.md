@@ -63,22 +63,23 @@ The frontend (`/api/*` requests) proxies to the backend via Vite config. Never r
 |---|---|
 | Add/change API endpoint | `artifacts/api-server-python/app/routes/*.py` |
 | Change AI behavior | `artifacts/api-server-python/app/services/ai/*.py` |
+| Add/change AI provider key logic | `artifacts/api-server-python/app/utils/api_key_store.py` |
 | Add DB table | `artifacts/api-server-python/app/models.py` |
 | Add HTTP middleware | `artifacts/api-server-python/app/middleware/` → register in `main.py` |
 | Add shared backend util | `artifacts/api-server-python/app/utils/` |
 | Change UI/page | `artifacts/brand-os/src/pages/*.tsx` |
-| Change app layout | `artifacts/brand-os/src/components/Layout.tsx` |
+| Change app layout / sidebar | `artifacts/brand-os/src/components/Layout.tsx` |
 | Add shared TypeScript type | `artifacts/brand-os/src/types/index.ts` |
 | Add app-wide constant | `artifacts/brand-os/src/lib/constants.ts` |
 | Add platform/size/model config | `artifacts/brand-os/src/lib/constants.ts` (PLATFORM_CONFIG, IMAGE_SIZE_OPTIONS, etc.) |
-| Add image utility (resize, bg-remove) | `artifacts/brand-os/src/lib/imageUtils.ts` |
-| Make an authenticated API call | Use `apiFetch` / `apiPost` from `artifacts/brand-os/src/lib/apiFetch.ts` |
+| Make an authenticated API call | Use `apiFetch` from `artifacts/brand-os/src/lib/apiFetch.ts` |
 | Add a post card feature | `artifacts/brand-os/src/components/PostCard.tsx` |
 | Add image gen dialog feature | `artifacts/brand-os/src/components/ImageGenDialog.tsx` |
 | Add custom React hook | `artifacts/brand-os/src/hooks/` |
 | Change API types | `lib/api-spec/openapi.yaml` → then run codegen |
 | Change auth logic | `artifacts/api-server-python/app/layers/auth.py` |
 | Change credit costs | `artifacts/api-server-python/app/layers/credits.py` |
+| Manage AI keys (UI) | `artifacts/brand-os/src/pages/AdminApiKeys.tsx` + `app/routes/admin.py` |
 | Add env variable | Read environment-secrets skill first |
 | Full backend architecture | See `BACKEND_GUIDE.md` |
 | Full frontend architecture | See `FRONTEND_GUIDE.md` |
@@ -91,8 +92,9 @@ The frontend (`/api/*` requests) proxies to the backend via Vite config. Never r
 - Auth is custom JWT (python-jose + bcrypt). Do NOT replace with Replit Auth or any external provider
 - The Python backend is the only backend. The TypeScript/Express backend was deleted in May 2026
 - `artifacts/api-server-python/app/layers/payments.py` is an intentional documented stub — do not delete it
+- `artifacts/api-server-python/app/utils/api_key_store.py` — always call `invalidate()` + `ai_client.invalidate_client_cache()` after writing a new key, so changes take effect without a restart
 
-### Startup commands (if setting up fresh)
+### Startup commands (Replit — if setting up fresh)
 
 ```bash
 # Install JS deps
@@ -110,13 +112,30 @@ print('Tables OK')
 " && cd ../..
 ```
 
+### Local development (on your computer)
+
+```bash
+# One-time setup
+cp .env.example .env        # fill in DATABASE_URL, AUTH_JWT_SECRET, OPENAI_API_KEY
+bash scripts/setup.sh       # install deps + create DB tables
+
+# Daily startup (starts both servers)
+bash scripts/dev.sh
+
+# Frontend: http://localhost:5000
+# API Docs: http://localhost:8080/api/docs
+```
+
+See [`DOCUMENTATION.md → Local Development`](./DOCUMENTATION.md#local-development) for the full guide.
+
 ### Debugging tips
 
 - API not responding → check `Python API Server` workflow logs
-- Frontend blank → check `Start application` workflow logs  
+- Frontend blank → check `Start application` workflow logs
 - 401 errors → `AUTH_JWT_SECRET` must be set in Replit Secrets
-- AI calls failing → check `AI_INTEGRATIONS_OPENAI_API_KEY` is set (auto by Replit integration)
+- AI calls returning 503 → add an API key via **Admin → API Keys** in the sidebar, or set `OPENAI_API_KEY` in env
 - Credits blocking requests → set `CREDITS_ENABLED=false` or use an admin account
+- Sessions reset on restart → `AUTH_JWT_SECRET` not set (ephemeral key used)
 - Swagger UI for manual API testing: `http://localhost:8080/api/docs`
 
 ### Regenerate API client after spec changes
@@ -161,8 +180,9 @@ artifacts/api-server-python/
       rate_limit.py          ← slowapi Limiter + 429 error handler
     routes/                  ← One router per feature domain
       auth.py / brands.py / campaigns.py / posts.py / dashboard.py / system.py
+      admin.py               ← /admin/* (users, settings, API keys — admin-only)
     services/
-      ai/client.py           ← OpenAI/Gemini client resolver
+      ai/client.py           ← AI client resolver (reads api_key_store, 60s cache)
       ai/brand_kit.py        ← Brand kit + brand story generation
       ai/campaign.py         ← Campaign generation
       ai/post.py             ← Regenerate/variant/long-form content
@@ -171,6 +191,7 @@ artifacts/api-server-python/
       job_store.py           ← In-memory background job tracker
       logo_processor.py      ← Logo variants (B&W/grayscale) + color extraction
     utils/                   ← Shared stateless helpers (import freely in routes/services)
+      api_key_store.py       ← AI provider keys: DB (60s TTL cache) + env var fallback
       pagination.py          ← PaginationParams (FastAPI Depends) + paginate()
       ownership.py           ← get_owned_brand/campaign/post() → 404 if not owned
       ai_errors.py           ← handle_ai_error(e) → maps AI exceptions to HTTP 503/422
@@ -189,6 +210,7 @@ artifacts/brand-os/src/
     index.ts                 ← Shared TypeScript types (AuthUser, BrandKit, JobProgress…)
   lib/
     constants.ts             ← App-wide constants (limits, keys, intervals, platforms)
+    apiFetch.ts              ← Authenticated fetch wrapper (adds Authorization: Bearer)
     apiError.ts              ← extractApiError(), notifyError(), notifySuccess()
     colorExtractor.ts        ← Canvas-based color extraction from logos
     utils.ts                 ← cn() — Tailwind class merger
@@ -201,9 +223,12 @@ artifacts/brand-os/src/
     AuthContext.tsx           ← User session (signIn, signUp, signOut, refresh)
     SiteSettingsContext.tsx  ← Public settings + maintenance mode
   components/
-    Layout.tsx               ← App shell: sidebar + nav
+    Layout.tsx               ← App shell: sidebar + nav (admin section inside)
+    PostCard.tsx             ← Post card in campaign workspace
+    ImageGenDialog.tsx       ← Image generation dialog
     ui/                      ← Atomic UI (shadcn/ui): Button, Input, Card, Dialog…
   pages/                     ← One file per route (lazy-loaded in App.tsx)
+    AdminApiKeys.tsx         ← /admin/api-keys — manage AI provider keys (admin only)
 ```
 
 ### Auto-generated API client (do not edit manually)
@@ -308,6 +333,12 @@ Interactive API docs: `http://localhost:8080/api/docs` (Swagger UI)
 ## Recent significant changes
 
 > Full history → **`CHANGELOG.md`**
+
+- 2026-05-30 — **Admin API Keys UI:** Full admin panel for managing AI provider keys (OpenAI, Gemini, Nano Banana) from the app — no env var restart needed. New `api_key_store.py` (DB cache), 5 new admin routes, `AdminApiKeys.tsx` page.
+- 2026-05-30 — **Local dev:** `scripts/dev.sh` + `scripts/setup.sh` + `.env.example` — one command to start both servers locally.
+- 2026-05-30 — **Docs rewrite:** `DOCUMENTATION.md`, `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md` fully updated with local dev guide, admin panel docs, and cross-references.
+- 2026-05-30 — **Cleanup:** removed root placeholder `main.py`, removed unused `lib/integrations/integrations-openai-ai-server/`.
+- 2026-05-30 — **Bugfixes:** `generate_brand_campaign` NameError, silent AI fallback in `brand_kit.py`, raw fetch in `BrandKit.tsx` → `apiFetch`.
 
 - 2026-05-19 — **Architecture refactor:** Added `app/middleware/` (RequestLoggerMiddleware), `app/utils/` (pagination, ownership, ai_errors). Frontend: `src/types/`, `src/lib/constants.ts`, `src/hooks/useDebounce|useLocalStorage|useJobPoller`. Added `BACKEND_GUIDE.md`, `FRONTEND_GUIDE.md`, `CHANGELOG.md`.
 - 2026-05-19 — **Security:** Rate limiting (slowapi) + CORS hardening (no more `"*"`).
