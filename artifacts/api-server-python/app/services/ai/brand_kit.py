@@ -111,16 +111,16 @@ Return a JSON object with EXACTLY these fields (be deeply specific and original 
 
 Be deeply specific, original, and tailored to {company_name}. Every field must reflect this exact company."""
 
+    raw = call_ai(system_prompt, user_prompt, max_tokens=8192)
     try:
-        raw = call_ai(system_prompt, user_prompt, max_tokens=8192)
         kit = json.loads(_clean_json(raw))
-        if kit.get("visualStyle") not in VALID_VISUAL_STYLES:
-            kit["visualStyle"] = BRAND_KIT_FALLBACK_VISUAL_STYLE
-        if not kit.get("colorPalette", {}).get("neutral"):
-            kit.setdefault("colorPalette", {})["neutral"] = "#6B7280"
-        return kit
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return _build_fallback_kit(company_name, company_description, industry, brand_colors)
+    if kit.get("visualStyle") not in VALID_VISUAL_STYLES:
+        kit["visualStyle"] = BRAND_KIT_FALLBACK_VISUAL_STYLE
+    if not kit.get("colorPalette", {}).get("neutral"):
+        kit.setdefault("colorPalette", {})["neutral"] = "#6B7280"
+    return kit
 
 
 def generate_brand_story(
@@ -162,19 +162,8 @@ Write exactly 3 paragraphs:
 
 Be specific to {company_name}. No generic startup clichés. Every sentence must feel authentic."""
 
-    try:
-        raw = call_ai(system_prompt, user_prompt, max_tokens=2048)
-        return raw.strip()
-    except Exception:
-        return (
-            f"{company_name} was founded with a clear-eyed observation: the {industry} space was full of noise "
-            f"and short on real results. {company_description[:120]}.\n\n"
-            f"We built {company_name} differently — starting with the outcomes clients actually needed, "
-            f"then working backwards to create systems that deliver them consistently. "
-            f"Every decision since day one has been guided by that same discipline.\n\n"
-            f"Today, {company_name} exists to give ambitious businesses the strategic edge they deserve. "
-            f"We are not just a service provider — we are the partner that shows up when it matters most."
-        )
+    raw = call_ai(system_prompt, user_prompt, max_tokens=2048)
+    return raw.strip()
 
 
 def _build_fallback_kit(

@@ -166,8 +166,10 @@ def generate_brand_campaign(
     if not brand.brand_kit:
         raise HTTPException(status_code=400, detail="Generate the brand kit first")
 
+    charged = 0
     try:
-        credits_layer.charge_credits(current_user, "brand.generate-campaign", db)
+        info = credits_layer.charge_credits(current_user, "brand.generate-campaign", db)
+        charged = info["charged"]
     except InsufficientCreditsError as e:
         raise HTTPException(status_code=402, detail=str(e))
 

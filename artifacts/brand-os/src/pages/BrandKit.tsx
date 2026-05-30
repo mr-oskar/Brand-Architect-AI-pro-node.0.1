@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { extractApiError, notifyError } from "@/lib/apiError";
+import { apiFetch } from "@/lib/apiFetch";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
