@@ -8,6 +8,48 @@ This file is the **single source of truth** for all work done on this project.
 3. Mark items `[x]` when completed and `[ ]` for pending/planned
 4. Never delete old entries — append only
 
+## Session 2026-05-31 — Real-time AI model selection + architecture doc
+
+### Completed
+
+- [x] **Architecture diagnosis: Two parallel systems identified**
+  - System A (active): `api_key_store.py` + `client.py` — used by ALL AI services
+  - System B (management): `AIProvider`/`AIModel` DB tables + `registry.py` + `router.py` — for admin UI
+  - Root problem: `public_router` in `admin_models.py` (prefix `/ai`) was defined but NOT mounted in `main.py` → `GET /api/ai/models` was dead
+
+- [x] **Fix: `GET /api/ai/models` now works end-to-end**
+  - Mounted `public_router` from `admin_models.py` in `main.py`
+  - Enhanced the endpoint to fall back to `api_key_store` when no DB providers exist
+  - Returns curated model list per provider: OpenAI → gpt-image-1/dall-e-3/dall-e-2, Gemini → gemini models
+  - Response shape: `{ models: [...], source: "registry"|"keystore" }`
+
+- [x] **User-facing model selection in ImageGenDialog**
+  - Added "AI Image Model" dropdown (full-width, below Size + Prompt Quality)
+  - Fetches live from `/api/ai/models?capability=image` on dialog open
+  - Auto-selects admin default; user can override per generation
+  - Added `imageModelId` to `ImageGenOptions` type and `GeneratePostImageRequest` schema
+
+- [x] **Backend: model_override propagated through all image generation paths**
+  - Added `model_override: Optional[str]` to `generate_image_bytes()`, `generate_image_with_logo_reference()`, `generate_image_with_references()`
+  - Added `_effective_provider(model_override)` helper — detects Gemini by model name
+  - All fallback calls pass `model_override` through correctly
+  - `CampaignWorkspace.tsx` passes `imageModelId` in generate-image API call
+
+- [x] **Wrote `AI_ARCHITECTURE.md`** — comprehensive reference doc covering:
+  - Two-system overview with data flow diagram
+  - Two distinct "model" concepts (enhancement tier vs actual AI model)
+  - Token/cost analysis table
+  - Provider routing logic
+  - OpenAI model capability matrix (images.generate vs images.edit)
+  - Extension guide
+
+### Architecture Notes
+- `_effective_provider()` infers provider from model name (if "gemini" in name → gemini path)
+- Custom providers: only configured model shown in picker (no curated alternatives)
+- System B → System A sync: `_sync_legacy_key_store()` in `admin_models.py` keeps both in sync when admin configures DB providers
+
+---
+
 ## Session 2026-05-31 — Critical bug fixes (image gen, job store persistence)
 
 ### Completed

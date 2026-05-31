@@ -12,12 +12,13 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Wand2, X, Upload, Plus, Trash2, Image as ImageIcon,
-  ChevronDown, Check, Sparkles, Loader2, Eye, History,
+  ChevronDown, Check, Sparkles, Loader2, Eye, History, Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/imageUtils";
+import { apiFetch } from "@/lib/apiFetch";
 import { IMAGE_SIZE_OPTIONS, IMAGE_MODEL_OPTIONS, IMAGE_ASPECT_PRESETS } from "@/lib/constants";
-import type { ImageGenOptions, ImageSize, ImageModel, PostImageHistoryEntry, ReferenceImageItem } from "@/types";
+import type { ImageGenOptions, ImageSize, ImageModel, PostImageHistoryEntry, ReferenceImageItem, AvailableAIModel } from "@/types";
 
 // ─── SVG shape that visually represents an aspect ratio ───────────────────────
 
@@ -118,10 +119,15 @@ export function ImageGenDialog({
   const [restoring, setRestoring] = useState<string | null>(null);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [aiModelOpen, setAiModelOpen] = useState(false);
+  const [aiModels, setAiModels] = useState<AvailableAIModel[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [aiModelsLoading, setAiModelsLoading] = useState(false);
 
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const sizeDropRef = useRef<HTMLDivElement | null>(null);
   const modelDropRef = useRef<HTMLDivElement | null>(null);
+  const aiModelDropRef = useRef<HTMLDivElement | null>(null);
 
   // Animated progress bar while generating
   useEffect(() => {
@@ -141,10 +147,33 @@ export function ImageGenDialog({
     function onOutside(e: MouseEvent) {
       if (sizeOpen && sizeDropRef.current && !sizeDropRef.current.contains(e.target as Node)) setSizeOpen(false);
       if (modelOpen && modelDropRef.current && !modelDropRef.current.contains(e.target as Node)) setModelOpen(false);
+      if (aiModelOpen && aiModelDropRef.current && !aiModelDropRef.current.contains(e.target as Node)) setAiModelOpen(false);
     }
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
-  }, [sizeOpen, modelOpen]);
+  }, [sizeOpen, modelOpen, aiModelOpen]);
+
+  // Fetch available AI image models when the dialog opens
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setAiModelsLoading(true);
+    apiFetch("/api/ai/models?capability=image")
+      .then((res) => res.json())
+      .then((data: { models: AvailableAIModel[] }) => {
+        if (cancelled) return;
+        const list = data.models || [];
+        setAiModels(list);
+        // Auto-select the default model on first open
+        setSelectedModelId((prev) => {
+          if (prev) return prev;
+          return list.find((m) => m.isDefault)?.id ?? list[0]?.id ?? null;
+        });
+      })
+      .catch(() => { if (!cancelled) setAiModels([]); })
+      .finally(() => { if (!cancelled) setAiModelsLoading(false); });
+    return () => { cancelled = true; };
+  }, [open]);
 
   // Lock body scroll + Escape key handler
   useEffect(() => {
@@ -202,6 +231,7 @@ export function ImageGenDialog({
     }
     onGenerate({
       customPrompt, size, customWidth: cW, customHeight: cH, model, overlayText, includeLogo,
+      imageModelId: selectedModelId || undefined,
       referenceImages: refImages.map((r) => ({ dataUrl: r.dataUrl, label: r.label.trim() || undefined })),
     });
   }
@@ -331,13 +361,13 @@ export function ImageGenDialog({
             <input type="text" className="w-full px-4 py-2.5 rounded-xl border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={overlayText} onChange={(e) => setOverlayText(e.target.value)} placeholder="e.g. 'New Collection 2025' or brand tagline…" disabled={generating} />
           </div>
 
-          {/* Size + Model dropdowns */}
+          {/* Size + Prompt Quality dropdowns */}
           <div className="grid grid-cols-2 gap-3">
             {/* Size */}
             <div>
               <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Canvas Size</label>
               <div className="relative" ref={sizeDropRef}>
-                <button type="button" onClick={() => { if (!generating) { setSizeOpen(v => !v); setModelOpen(false); } }} disabled={generating} className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all", sizeOpen ? "border-primary/50 bg-primary/5" : "border-input bg-background hover:border-border", generating && "opacity-50 cursor-not-allowed")}>
+                <button type="button" onClick={() => { if (!generating) { setSizeOpen(v => !v); setModelOpen(false); setAiModelOpen(false); } }} disabled={generating} className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all", sizeOpen ? "border-primary/50 bg-primary/5" : "border-input bg-background hover:border-border", generating && "opacity-50 cursor-not-allowed")}>
                   {(() => { const opt = IMAGE_SIZE_OPTIONS.find(o => o.id === sizeMode); return (<><span className="text-muted-foreground"><SizeShape ratio={opt?.ratio ?? "square"} /></span><span className="flex-1 font-medium">{opt?.label ?? "Square"}</span><span className="text-xs text-muted-foreground">{opt?.dim ?? ""}</span></>); })()}
                   <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform duration-150 flex-shrink-0", sizeOpen && "rotate-180")} />
                 </button>
@@ -356,11 +386,11 @@ export function ImageGenDialog({
               </div>
             </div>
 
-            {/* Model */}
+            {/* Prompt Quality */}
             <div>
               <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Prompt Quality</label>
               <div className="relative" ref={modelDropRef}>
-                <button type="button" onClick={() => { if (!generating) { setModelOpen(v => !v); setSizeOpen(false); } }} disabled={generating} className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all", modelOpen ? "border-primary/50 bg-primary/5" : "border-input bg-background hover:border-border", generating && "opacity-50 cursor-not-allowed")}>
+                <button type="button" onClick={() => { if (!generating) { setModelOpen(v => !v); setSizeOpen(false); setAiModelOpen(false); } }} disabled={generating} className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all", modelOpen ? "border-primary/50 bg-primary/5" : "border-input bg-background hover:border-border", generating && "opacity-50 cursor-not-allowed")}>
                   {(() => { const opt = IMAGE_MODEL_OPTIONS.find(o => o.id === model); return (<><span className="text-muted-foreground"><ModelDot level={model} /></span><span className="flex-1 font-medium">{opt?.label ?? "Pro"}</span><span className="text-xs text-muted-foreground">{opt?.tagline ?? ""}</span></>); })()}
                   <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform duration-150 flex-shrink-0", modelOpen && "rotate-180")} />
                 </button>
@@ -378,6 +408,66 @@ export function ImageGenDialog({
               </div>
             </div>
           </div>
+
+          {/* AI Image Model picker — fetched live from /api/ai/models */}
+          {(aiModels.length > 0 || aiModelsLoading) && (
+            <div>
+              <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <Cpu className="w-3 h-3" /> AI Image Model
+              </label>
+              <div className="relative" ref={aiModelDropRef}>
+                <button
+                  type="button"
+                  onClick={() => { if (!generating && !aiModelsLoading) { setAiModelOpen(v => !v); setSizeOpen(false); setModelOpen(false); } }}
+                  disabled={generating || aiModelsLoading}
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm text-left transition-all",
+                    aiModelOpen ? "border-primary/50 bg-primary/5" : "border-input bg-background hover:border-border",
+                    (generating || aiModelsLoading) && "opacity-50 cursor-not-allowed",
+                  )}
+                >
+                  {aiModelsLoading ? (
+                    <><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /><span className="flex-1 text-muted-foreground">Loading models…</span></>
+                  ) : (() => {
+                    const sel = aiModels.find((m) => m.id === selectedModelId) ?? aiModels.find((m) => m.isDefault) ?? aiModels[0];
+                    return (
+                      <>
+                        <Cpu className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <span className="flex-1 font-medium">{sel?.name ?? "Default"}</span>
+                        {sel?.isDefault && <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">default</span>}
+                        <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform duration-150 flex-shrink-0", aiModelOpen && "rotate-180")} />
+                      </>
+                    );
+                  })()}
+                </button>
+                {aiModelOpen && aiModels.length > 0 && (
+                  <div className="absolute z-50 top-[calc(100%+4px)] left-0 right-0 bg-[#0c0c14] border border-border rounded-xl shadow-2xl overflow-hidden py-1">
+                    {aiModels.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { setSelectedModelId(m.id); setAiModelOpen(false); }}
+                        className={cn(
+                          "w-full flex items-start gap-3 px-3 py-2.5 text-sm transition-colors",
+                          m.id === selectedModelId ? "bg-primary/10 text-primary" : "text-foreground hover:bg-white/[0.04]",
+                        )}
+                      >
+                        <Cpu className={cn("w-4 h-4 mt-0.5 flex-shrink-0", m.id === selectedModelId ? "text-primary" : "text-muted-foreground")} />
+                        <div className="flex-1 text-left min-w-0">
+                          <div className="font-medium flex items-center gap-1.5">
+                            {m.name}
+                            {m.isDefault && <span className="text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary font-semibold">default</span>}
+                          </div>
+                          {m.description && <div className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{m.description}</div>}
+                        </div>
+                        {m.id === selectedModelId && <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Custom dimensions */}
           {sizeMode === "custom" && (

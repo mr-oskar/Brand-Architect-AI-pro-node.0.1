@@ -120,8 +120,22 @@ export type ToastVariant = "default" | "destructive";
 /** Supported standard image sizes for AI image generation. */
 export type ImageSize = "1024x1024" | "1024x1536" | "1536x1024" | "auto";
 
-/** AI image generation model tiers. */
+/** AI image generation model tiers (prompt enhancement level). */
 export type ImageModel = "nano" | "mini" | "pro";
+
+/**
+ * An AI model returned by GET /api/ai/models.
+ * Source is either "registry" (DB-backed System B) or "keystore" (api_key_store System A).
+ */
+export interface AvailableAIModel {
+  id: string;
+  name: string;
+  description: string;
+  capability: "image" | "text";
+  isDefault: boolean;
+  providerType: "openai" | "gemini" | "custom" | string;
+  source: "registry" | "keystore";
+}
 
 /** Options passed to the AI image generation endpoint and ImageGenDialog. */
 export interface ImageGenOptions {
@@ -134,6 +148,8 @@ export interface ImageGenOptions {
   includeLogo: boolean;
   logoDataUrl?: string;
   referenceImages?: Array<{ dataUrl: string; label?: string }>;
+  /** Actual AI model ID to use (e.g. "gpt-image-1"). Overrides the admin default. */
+  imageModelId?: string;
 }
 
 /** A single entry in a post's image generation history. */

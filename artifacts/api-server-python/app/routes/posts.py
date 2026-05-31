@@ -164,12 +164,13 @@ def generate_post_image(
         for r in valid_refs:
             all_refs.append(r["dataUrl"])
 
+        _model_override = (body.imageModelId or "").strip() or None
         if len(all_refs) > 1:
-            image_bytes = generate_image_with_references(all_refs, final_prompt, size)
+            image_bytes = generate_image_with_references(all_refs, final_prompt, size, model_override=_model_override)
         elif len(all_refs) == 1:
-            image_bytes = generate_image_with_logo_reference(all_refs[0], final_prompt, size)
+            image_bytes = generate_image_with_logo_reference(all_refs[0], final_prompt, size, model_override=_model_override)
         else:
-            image_bytes = generate_image_bytes(final_prompt, size)
+            image_bytes = generate_image_bytes(final_prompt, size, model_override=_model_override)
 
         object_path = upload_image_bytes(image_bytes, "image/png")
         image_url = storage_path_to_url(object_path)

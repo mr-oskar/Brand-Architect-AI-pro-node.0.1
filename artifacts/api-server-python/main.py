@@ -36,7 +36,7 @@ from app.config import settings
 from app.layers.rate_limit import limiter, rate_limit_exceeded_handler
 from app.middleware import RequestLoggerMiddleware
 from app.routes import auth, brands, campaigns, posts, dashboard, system, admin
-from app.routes.admin_models import admin_router as admin_models_router
+from app.routes.admin_models import admin_router as admin_models_router, public_router as ai_public_router
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,7 @@ app.include_router(dashboard.router,  prefix="/api")
 app.include_router(system.router,     prefix="/api")
 app.include_router(admin.router,            prefix="/api")   # Admin-only management
 app.include_router(admin_models_router,     prefix="/api")   # AI model stats + cost monitor
+app.include_router(ai_public_router,        prefix="/api")   # Public AI model listing (/api/ai/*)
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────

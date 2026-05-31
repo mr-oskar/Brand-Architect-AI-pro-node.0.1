@@ -150,3 +150,5 @@ def get_credit_costs(
     rows = db.query(AppSetting).filter(AppSetting.key == "creditCosts").all()
     custom = (rows[0].value or {}) if rows else {}
     return {**DEFAULT_CREDIT_COSTS, **custom}
+
+

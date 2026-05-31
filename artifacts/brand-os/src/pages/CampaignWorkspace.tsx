@@ -90,6 +90,7 @@ export default function CampaignWorkspace() {
     };
     if (opts.overlayText) body.overlayText = opts.overlayText;
     if (opts.logoDataUrl) body.logoDataUrl = opts.logoDataUrl;
+    if (opts.imageModelId) body.imageModelId = opts.imageModelId;
     if (opts.customWidth && opts.customHeight) { body.customWidth = opts.customWidth; body.customHeight = opts.customHeight; }
     if (opts.referenceImages?.length) body.referenceImages = opts.referenceImages;
 

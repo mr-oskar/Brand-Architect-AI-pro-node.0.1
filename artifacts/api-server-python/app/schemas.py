@@ -216,6 +216,7 @@ class GeneratePostImageRequest(BaseModel):
     overlayText: Optional[str] = None
     brandName: Optional[str] = None
     model: Optional[str] = "pro"
+    imageModelId: Optional[str] = None
     referenceImages: Optional[list[dict]] = None
 
 

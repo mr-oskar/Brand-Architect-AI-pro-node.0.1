@@ -952,6 +952,24 @@ def set_task_model_config(
 # PUBLIC: Available models for current user
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_KEYSTORE_IMAGE_MODELS: dict[str, list[str]] = {
+    "openai":  ["gpt-image-1", "dall-e-3", "dall-e-2"],
+    "gemini":  [
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.5-flash-preview-image-generation",
+    ],
+    "custom":  [],
+}
+
+_KEYSTORE_IMAGE_DESCRIPTIONS: dict[str, str] = {
+    "gpt-image-1":   "Latest OpenAI image model — supports reference images & logo inlining",
+    "dall-e-3":      "High quality & creative — does not support reference image input",
+    "dall-e-2":      "Fast & cost-effective — supports classic edit/inpainting API",
+    "gemini-2.0-flash-preview-image-generation": "Fast Gemini image generation with multi-modal input",
+    "gemini-2.5-flash-preview-image-generation": "Latest Gemini image model — higher quality",
+}
+
+
 @public_router.get("/models")
 def get_available_models(
     capability: Optional[str] = Query(None),
@@ -960,62 +978,120 @@ def get_available_models(
 ):
     """
     Return AI models available to the current user.
-    If no plans are configured, all enabled models are returned as allowed=true.
-    If plans are configured, models are filtered/annotated by the user's plan.
+
+    Priority:
+      1. DB-backed registry (System B: AIProvider / AIModel tables) — richer metadata,
+         plan-gated permissions. Returned when any AI providers are configured here.
+      2. api_key_store fallback (System A) — curated list derived from the active
+         provider type (openai / gemini / custom) + the configured default model.
+         Used by installations that have not set up DB providers.
+
+    Response shape:
+      { models: [...], source: "registry" | "keystore" }
+
+    Each model object:
+      id          — model API identifier (e.g. "gpt-image-1"); pass as imageModelId
+                    to POST /posts/:id/generate-image to override the admin default
+      name        — human-readable name
+      description — short capability note
+      capability  — "image" | "text"
+      isDefault   — true for the admin-configured default
+      providerType — "openai" | "gemini" | "custom"
+      allowed     — plan gate (only present for registry models)
+      source      — "registry" | "keystore"
     """
+    # ── System B: DB-backed registry ──────────────────────────────────────────
     q = db.query(AIModel).filter(AIModel.enabled == True)
     if capability:
         q = q.filter(AIModel.capability == capability)
     model_rows = q.order_by(AIModel.priority, AIModel.name).all()
 
-    if not model_rows:
-        return []
+    if model_rows:
+        providers_map = {
+            p.id: p
+            for p in db.query(AIProvider).filter(
+                AIProvider.id.in_([m.provider_id for m in model_rows]),
+                AIProvider.enabled == True,
+            ).all()
+        }
+        model_rows = [m for m in model_rows if m.provider_id in providers_map]
 
-    providers_map = {
-        p.id: p
-        for p in db.query(AIProvider).filter(
-            AIProvider.id.in_([m.provider_id for m in model_rows]),
-            AIProvider.enabled == True,
-        ).all()
-    }
+        plan_links: dict[str, AIPlanModel] = {}
+        plans_exist = db.query(AIPlan).count() > 0
+        if plans_exist:
+            user_plan_id = getattr(current_user, "plan_id", None)
+            if user_plan_id:
+                plan = db.query(AIPlan).filter(AIPlan.id == user_plan_id).first()
+            else:
+                plan = db.query(AIPlan).filter(AIPlan.is_default == True).first()
+            if plan:
+                links = db.query(AIPlanModel).filter(AIPlanModel.plan_id == plan.id).all()
+                plan_links = {lk.model_id: lk for lk in links}
 
-    # Only include models whose provider is enabled
-    model_rows = [m for m in model_rows if m.provider_id in providers_map]
+        result = []
+        for m in model_rows:
+            prov = providers_map.get(m.provider_id)
+            allowed = True
+            if plans_exist and plan_links:
+                link = plan_links.get(m.id)
+                allowed = link.allowed if link else False
+            result.append({
+                "id":           m.model_id,
+                "name":         m.name or _nice_model_name(m.model_id),
+                "description":  m.description or _KEYSTORE_IMAGE_DESCRIPTIONS.get(m.model_id, ""),
+                "capability":   m.capability,
+                "isDefault":    m.is_default,
+                "providerType": prov.provider_type if prov else "openai",
+                "allowed":      allowed,
+                "source":       "registry",
+            })
+        return {"models": result, "source": "registry"}
 
-    # Plan-based permission check
-    plan_links: dict[str, AIPlanModel] = {}
-    plans_exist = db.query(AIPlan).count() > 0
-    if plans_exist:
-        user_plan_id = getattr(current_user, "plan_id", None)
-        if user_plan_id:
-            plan = db.query(AIPlan).filter(AIPlan.id == user_plan_id).first()
-        else:
-            plan = db.query(AIPlan).filter(AIPlan.is_default == True).first()
+    # ── System A: api_key_store fallback ──────────────────────────────────────
+    from app.services.ai.client import get_provider, get_image_model  # noqa: PLC0415
 
-        if plan:
-            links = db.query(AIPlanModel).filter(AIPlanModel.plan_id == plan.id).all()
-            plan_links = {lk.model_id: lk for lk in links}
+    provider = get_provider() or "openai"
+    configured_img = get_image_model()
+    models = []
 
-    result = []
-    for m in model_rows:
-        prov = providers_map.get(m.provider_id)
-        allowed = True
-        if plans_exist and plan_links:
-            link = plan_links.get(m.id)
-            allowed = (link.allowed if link else False)
-        result.append({
-            "id": m.id,
-            "modelId": m.model_id,
-            "name": m.name or m.model_id,
-            "description": m.description,
-            "capability": m.capability,
-            "creditCost": m.credit_cost,
-            "isDefault": m.is_default,
-            "providerName": prov.name if prov else "Unknown",
-            "providerType": prov.provider_type if prov else "openai",
-            "allowed": allowed,
-        })
-    return result
+    if not capability or capability == "image":
+        candidates = list(_KEYSTORE_IMAGE_MODELS.get(provider, []))
+        if configured_img and configured_img not in candidates:
+            candidates.insert(0, configured_img)
+
+        seen: set[str] = set()
+        for m in candidates:
+            if not m or m in seen:
+                continue
+            seen.add(m)
+            models.append({
+                "id":           m,
+                "name":         _nice_model_name(m),
+                "description":  _KEYSTORE_IMAGE_DESCRIPTIONS.get(m, ""),
+                "capability":   "image",
+                "isDefault":    m == configured_img,
+                "providerType": provider,
+                "source":       "keystore",
+            })
+
+    if not capability or capability == "text":
+        try:
+            from app.services.ai.client import resolve_model  # noqa: PLC0415
+            txt = resolve_model("gpt-4o", use_case="text")
+            if txt:
+                models.append({
+                    "id":           txt,
+                    "name":         _nice_model_name(txt),
+                    "description":  "Active text generation model",
+                    "capability":   "text",
+                    "isDefault":    True,
+                    "providerType": provider,
+                    "source":       "keystore",
+                })
+        except Exception:
+            pass
+
+    return {"models": models, "source": "keystore"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -121,20 +121,46 @@ def _is_edit_capable(img_model: str) -> bool:
     return "dall-e-2" in img_model.lower()
 
 
+def _effective_provider(model_override: Optional[str] = None) -> str:
+    """
+    Determine the AI provider to route the request through.
+
+    When the user selects a specific model (model_override), we infer the provider
+    from the model name so the correct API path is used regardless of what's configured
+    as the global default in api_key_store.
+
+    Priority:
+      1. model_override contains "gemini" → gemini
+      2. Otherwise → configured provider from api_key_store
+    """
+    if model_override and "gemini" in model_override.lower():
+        return "gemini"
+    return get_provider()
+
+
 # ── Public generation functions ───────────────────────────────────────────────
 
 def generate_image_bytes(
     prompt: str,
     size: ImageSize = "1024x1024",
+    model_override: Optional[str] = None,
 ) -> bytes:
-    """Generate an image from a text prompt. Returns raw PNG bytes."""
-    provider = get_provider()
+    """
+    Generate an image from a text prompt. Returns raw PNG bytes.
+
+    model_override: if provided, use this model ID instead of the configured default.
+                    Passed from the user's model selection in the frontend.
+    """
+    provider = _effective_provider(model_override)
 
     if provider == "gemini":
-        return _gemini_generate_image([{"text": _with_aspect_hint(prompt, size)}])
+        return _gemini_generate_image(
+            [{"text": _with_aspect_hint(prompt, size)}],
+            model=model_override,
+        )
 
     client = get_client()
-    img_model = get_image_model()
+    img_model = model_override or get_image_model()
     response = client.images.generate(
         model=img_model,
         prompt=prompt,
@@ -148,6 +174,7 @@ def generate_image_with_logo_reference(
     logo_data_url: str,
     prompt: str,
     size: ImageSize = "1024x1024",
+    model_override: Optional[str] = None,
 ) -> bytes:
     """
     Generate an image using a logo as a reference image.
@@ -156,19 +183,21 @@ def generate_image_with_logo_reference(
     For those models we embed the logo as base64 in the request (gpt-image-1
     supports image[] input natively). For dall-e-2 we use the classic edit API.
     For any failure we fall back to prompt-only generation.
+
+    model_override: if provided, use this model ID instead of the configured default.
     """
     base64_data = logo_data_url.split(",", 1)[-1] if "," in logo_data_url else logo_data_url
     mime_type = "image/png" if logo_data_url.startswith("data:image/png") else "image/jpeg"
-    provider = get_provider()
+    provider = _effective_provider(model_override)
 
     if provider == "gemini":
         return _gemini_generate_image([
             {"inlineData": {"mimeType": mime_type, "data": base64_data}},
             {"text": _with_aspect_hint(prompt, size)},
-        ])
+        ], model=model_override)
 
     client = get_client()
-    img_model = get_image_model()
+    img_model = model_override or get_image_model()
 
     # gpt-image-1 supports image[] parameter in images.generate
     if "gpt-image-1" in img_model.lower():
@@ -185,8 +214,7 @@ def generate_image_with_logo_reference(
             )
             return _extract_image_bytes(response)
         except Exception:
-            # Fall back to prompt-only if image[] not accepted
-            return generate_image_bytes(prompt, size)
+            return generate_image_bytes(prompt, size, model_override=model_override)
 
     # dall-e-2: use classic images.edit
     if _is_edit_capable(img_model):
@@ -201,10 +229,10 @@ def generate_image_with_logo_reference(
             )
             return _extract_image_bytes(response)
         except Exception:
-            return generate_image_bytes(prompt, size)
+            return generate_image_bytes(prompt, size, model_override=model_override)
 
     # dall-e-3 or unknown model: prompt-only generation (no edit support)
-    return generate_image_bytes(prompt, size)
+    return generate_image_bytes(prompt, size, model_override=model_override)
 
 
 def generate_image_with_references(
@@ -213,6 +241,7 @@ def generate_image_with_references(
     size: ImageSize = "1024x1024",
     quality: Optional[str] = None,
     background: Optional[str] = None,
+    model_override: Optional[str] = None,
 ) -> bytes:
     """
     Generate an image using multiple reference images (logo + others).
@@ -221,11 +250,13 @@ def generate_image_with_references(
     FIX: Only dall-e-2 supports images.edit with file uploads.
     For gpt-image-1 we use image[] in images.generate.
     For dall-e-3 and others we fall back to prompt-only.
+
+    model_override: if provided, use this model ID instead of the configured default.
     """
     if not reference_data_urls:
-        return generate_image_bytes(prompt, size)
+        return generate_image_bytes(prompt, size, model_override=model_override)
 
-    provider = get_provider()
+    provider = _effective_provider(model_override)
 
     if provider == "gemini":
         parts = []
@@ -234,10 +265,10 @@ def generate_image_with_references(
             mime = "image/png" if url.startswith("data:image/png") else "image/jpeg"
             parts.append({"inlineData": {"mimeType": mime, "data": b64}})
         parts.append({"text": _with_aspect_hint(prompt, size)})
-        return _gemini_generate_image(parts)
+        return _gemini_generate_image(parts, model=model_override)
 
     client = get_client()
-    img_model = get_image_model()
+    img_model = model_override or get_image_model()
 
     # gpt-image-1: supports image[] in images.generate
     if "gpt-image-1" in img_model.lower():
@@ -265,7 +296,7 @@ def generate_image_with_references(
             response = client.images.generate(**gen_params)
             return _extract_image_bytes(response)
         except Exception:
-            return generate_image_bytes(prompt, size)
+            return generate_image_bytes(prompt, size, model_override=model_override)
 
     # dall-e-2: classic images.edit supports file uploads
     if _is_edit_capable(img_model):
@@ -292,10 +323,10 @@ def generate_image_with_references(
             response = client.images.edit(**edit_params)
             return _extract_image_bytes(response)
         except Exception:
-            return generate_image_bytes(prompt, size)
+            return generate_image_bytes(prompt, size, model_override=model_override)
 
     # dall-e-3 or unknown: prompt-only fallback
-    return generate_image_bytes(prompt, size)
+    return generate_image_bytes(prompt, size, model_override=model_override)
 
 
 def enhance_prompt(
