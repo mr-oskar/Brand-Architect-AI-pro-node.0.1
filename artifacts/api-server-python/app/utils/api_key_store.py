@@ -56,6 +56,16 @@ PROVIDER_DEFAULTS = {
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+def _coerce_to_list(value) -> Optional[list]:
+    """Normalise a stored model value to a list, or return None if empty."""
+    if isinstance(value, list):
+        filtered = [v for v in value if v]
+        return filtered or None
+    if isinstance(value, str) and value:
+        return [value]
+    return None
+
+
 def _load_from_db() -> dict:
     """Load API keys from AppSetting table. Returns empty dict on error."""
     try:
@@ -116,6 +126,8 @@ def save(
     enabled: bool = True,
     text_model: Optional[str] = None,
     image_model: Optional[str] = None,
+    text_models: Optional[list] = None,
+    image_models: Optional[list] = None,
 ) -> None:
     """Persist a provider API key (+ optional model prefs) to the DB and invalidate cache."""
     from app.models import AppSetting
@@ -127,8 +139,26 @@ def save(
     entry: dict = {"apiKey": api_key, "enabled": enabled}
     if base_url:
         entry["baseUrl"] = base_url
-    entry["textModel"]  = text_model  or existing.get("textModel")  or defaults.get("text",  "")
-    entry["imageModel"] = image_model or existing.get("imageModel") or defaults.get("image", "")
+
+    # Resolve multi-model lists (new) with fallback to single model (legacy)
+    resolved_text_models = (
+        [m for m in text_models if m] if text_models
+        else ([text_model] if text_model else None)
+        or _coerce_to_list(existing.get("textModels") or existing.get("textModel"))
+        or [defaults.get("text", "")]
+    )
+    resolved_image_models = (
+        [m for m in image_models if m] if image_models
+        else ([image_model] if image_model else None)
+        or _coerce_to_list(existing.get("imageModels") or existing.get("imageModel"))
+        or [defaults.get("image", "")]
+    )
+
+    entry["textModels"]  = resolved_text_models
+    entry["imageModels"] = resolved_image_models
+    # Keep legacy single-model keys for backward compat with AI services
+    entry["textModel"]   = resolved_text_models[0]  if resolved_text_models  else ""
+    entry["imageModel"]  = resolved_image_models[0] if resolved_image_models else ""
 
     stored[provider] = entry
     if row:
@@ -258,6 +288,7 @@ def get_model_for_use_case(use_case: str) -> Optional[str]:
     """
     Return the DB-stored model preference for the active provider.
     use_case: "text" | "image"
+    When multiple models are stored, returns the first (primary) one.
     Returns None when no preference is stored (callers use built-in defaults).
     """
     _ensure_fresh()
@@ -265,8 +296,26 @@ def get_model_for_use_case(use_case: str) -> Optional[str]:
     if not provider_id:
         return None
     entry = _get_entry(provider_id)
-    key = "textModel" if use_case == "text" else "imageModel"
-    return entry.get(key) or None
+    list_key   = "textModels"  if use_case == "text" else "imageModels"
+    single_key = "textModel"   if use_case == "text" else "imageModel"
+    models = _coerce_to_list(entry.get(list_key) or entry.get(single_key))
+    return models[0] if models else None
+
+
+def get_models_for_use_case(use_case: str) -> list[str]:
+    """
+    Return all DB-stored model preferences for the active provider.
+    use_case: "text" | "image"
+    Returns an empty list when no preference is stored.
+    """
+    _ensure_fresh()
+    provider_id = get_active_provider_id()
+    if not provider_id:
+        return []
+    entry = _get_entry(provider_id)
+    list_key   = "textModels"  if use_case == "text" else "imageModels"
+    single_key = "textModel"   if use_case == "text" else "imageModel"
+    return _coerce_to_list(entry.get(list_key) or entry.get(single_key)) or []
 
 
 def get_gemini_api_key() -> Optional[str]:
@@ -297,6 +346,11 @@ def get_provider_list(db) -> list[dict]:
 
         defaults = PROVIDER_DEFAULTS.get(provider_id, {})
 
+        fallback_text  = defaults.get("text",  "")
+        fallback_image = defaults.get("image", "")
+        text_models  = _coerce_to_list(entry.get("textModels")  or entry.get("textModel"))  or ([fallback_text]  if fallback_text  else [])
+        image_models = _coerce_to_list(entry.get("imageModels") or entry.get("imageModel")) or ([fallback_image] if fallback_image else [])
+
         result.append({
             "id":            provider_id,
             "label":         meta["label"],
@@ -309,7 +363,9 @@ def get_provider_list(db) -> list[dict]:
             "envConfigured": env_configured and not api_key,
             "maskedKey":     f"...{api_key[-4:]}" if len(api_key) >= 4 else ("****" if api_key else ""),
             "baseUrl":       entry.get("baseUrl", "") if meta["has_base_url"] else None,
-            "textModel":     entry.get("textModel")  or defaults.get("text",  ""),
-            "imageModel":    entry.get("imageModel") or defaults.get("image", ""),
+            "textModel":     text_models[0]  if text_models  else fallback_text,
+            "imageModel":    image_models[0] if image_models else fallback_image,
+            "textModels":    text_models,
+            "imageModels":   image_models,
         })
     return result

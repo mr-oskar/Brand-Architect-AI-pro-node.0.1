@@ -56,11 +56,13 @@ class UpdateSettingsRequest(BaseModel):
 
 
 class SetApiKeyRequest(BaseModel):
-    apiKey:     str
-    baseUrl:    Optional[str] = None
-    enabled:    bool = True
-    textModel:  Optional[str] = None
-    imageModel: Optional[str] = None
+    apiKey:      str
+    baseUrl:     Optional[str] = None
+    enabled:     bool = True
+    textModel:   Optional[str] = None
+    imageModel:  Optional[str] = None
+    textModels:  Optional[list[str]] = None
+    imageModels: Optional[list[str]] = None
 
 
 class ToggleProviderRequest(BaseModel):
@@ -329,7 +331,9 @@ def set_api_key(
 
     api_key_store.save(db, provider, key, base_url, body.enabled,
                        text_model=body.textModel or None,
-                       image_model=body.imageModel or None)
+                       image_model=body.imageModel or None,
+                       text_models=body.textModels or None,
+                       image_models=body.imageModels or None)
 
     from app.services.ai import client as ai_client
     ai_client.invalidate_client_cache()

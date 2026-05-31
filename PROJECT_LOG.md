@@ -10,6 +10,16 @@ This file is the **single source of truth** for all work done on this project.
 
 ---
 
+## Session 2026-05-31 — Multi-select Model Picker
+
+### Completed [x]
+
+- [x] **`AdminApiKeys.tsx`** — `ModelPicker` converted from radio (single) to checkbox (multi-select). `FormState.textModels`/`imageModels` are now `string[]`. Auto-select on fetch fills first model. Summary row pills show all selected models. "N selected · primary: X" hint below each picker. Custom model IDs add to the list instead of replacing.
+- [x] **`admin.py`** — `SetApiKeyRequest` extended with `textModels: list[str]` and `imageModels: list[str]` (alongside legacy `textModel`/`imageModel` for backward compat). `set_api_key` route passes new fields to `api_key_store.save()`.
+- [x] **`api_key_store.py`** — Added `_coerce_to_list()` helper. `save()` now accepts `text_models`/`image_models` lists and stores both `textModels` (list) and `textModel` (first item, backward compat). `get_model_for_use_case()` reads list first, falls back to single string. New `get_models_for_use_case()` returns full list. `get_provider_list()` returns `textModels`/`imageModels` arrays alongside legacy single-model keys.
+
+---
+
 ## Session 2026-05-30 — Enhanced Admin API Keys Panel
 
 ### Completed [x]

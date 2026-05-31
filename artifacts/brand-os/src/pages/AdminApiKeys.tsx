@@ -34,14 +34,16 @@ interface Provider {
   baseUrl:       string | null;
   textModel:     string;
   imageModel:    string;
+  textModels:    string[];
+  imageModels:   string[];
 }
 
 interface FormState {
-  apiKey:     string;
-  baseUrl:    string;
-  enabled:    boolean;
-  textModel:  string;
-  imageModel: string;
+  apiKey:      string;
+  baseUrl:     string;
+  enabled:     boolean;
+  textModels:  string[];
+  imageModels: string[];
 }
 
 type TestStatus = "idle" | "testing" | "ok" | "warn" | "fail";
@@ -91,13 +93,18 @@ function StatusBadge({ provider }: { provider: Provider }) {
   );
 }
 
-function ModelBadge({ icon: Icon, label, model }: { icon: React.ElementType; label: string; model: string }) {
-  if (!model) return null;
+function ModelBadge({ icon: Icon, label, models }: { icon: React.ElementType; label: string; models: string[] }) {
+  const visible = models.filter(Boolean);
+  if (visible.length === 0) return null;
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground border border-border/50">
-      <Icon className="w-2.5 h-2.5 flex-shrink-0" />
-      <span className="font-mono truncate max-w-[140px]">{model}</span>
-    </span>
+    <>
+      {visible.map((m, i) => (
+        <span key={i} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground border border-border/50">
+          <Icon className="w-2.5 h-2.5 flex-shrink-0" />
+          <span className="font-mono truncate max-w-[140px]">{m}</span>
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -112,65 +119,91 @@ function ModelPicker({
   label:     string;
   icon:      React.ElementType;
   models:    ModelInfo[];
-  value:     string;
-  onChange:  (v: string) => void;
+  value:     string[];
+  onChange:  (v: string[]) => void;
   emptyHint: string;
 }) {
-  const [customVal, setCustomVal] = useState(
-    value && !models.find(m => m.id === value) ? value : "",
-  );
-  const [showCustom, setShowCustom] = useState(
-    Boolean(value && !models.find(m => m.id === value)),
-  );
+  const [customVal, setCustomVal] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
 
-  function pick(id: string) {
-    onChange(id);
+  function toggle(id: string) {
+    if (value.includes(id)) {
+      onChange(value.filter(v => v !== id));
+    } else {
+      onChange([...value, id]);
+    }
+  }
+
+  function addCustom() {
+    const id = customVal.trim();
+    if (!id) return;
+    if (!value.includes(id)) onChange([...value, id]);
     setCustomVal("");
     setShowCustom(false);
   }
 
+  // models not in the fetched list but manually added
+  const customSelected = value.filter(v => !models.find(m => m.id === v));
+
   return (
     <div className="space-y-1.5">
-      <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-        {label}
-      </p>
+      {label && (
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+          {label}
+        </p>
+      )}
 
       {models.length === 0 ? (
         <p className="text-[11px] text-muted-foreground px-1">{emptyHint}</p>
       ) : (
         <div className="grid gap-1 max-h-48 overflow-y-auto pr-1">
-          {models.map(m => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => pick(m.id)}
-              className={cn(
-                "flex items-start gap-2.5 w-full text-left px-3 py-2 rounded-lg border text-xs transition-all",
-                value === m.id && !showCustom
-                  ? "border-primary/50 bg-primary/10"
-                  : "border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-muted/30 hover:text-foreground",
-              )}
-            >
-              <span className={cn(
-                "w-3.5 h-3.5 rounded-full border flex-shrink-0 flex items-center justify-center mt-0.5",
-                value === m.id && !showCustom ? "border-primary bg-primary" : "border-muted-foreground/40",
-              )}>
-                {value === m.id && !showCustom && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="font-mono text-[11px] text-foreground truncate">{m.id}</div>
-                {m.name !== m.id && (
-                  <div className="text-[10px] text-primary/80 truncate">{m.name}</div>
+          {models.map(m => {
+            const selected = value.includes(m.id);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => toggle(m.id)}
+                className={cn(
+                  "flex items-start gap-2.5 w-full text-left px-3 py-2 rounded-lg border text-xs transition-all",
+                  selected
+                    ? "border-primary/50 bg-primary/10"
+                    : "border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-muted/30 hover:text-foreground",
                 )}
-                {m.description && (
-                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{m.description}</div>
-                )}
-              </div>
-            </button>
-          ))}
+              >
+                <span className={cn(
+                  "w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center mt-0.5",
+                  selected ? "border-primary bg-primary" : "border-muted-foreground/40",
+                )}>
+                  {selected && <Check className="w-2.5 h-2.5 text-white" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-[11px] text-foreground truncate">{m.id}</div>
+                  {m.name !== m.id && (
+                    <div className="text-[10px] text-primary/80 truncate">{m.name}</div>
+                  )}
+                  {m.description && (
+                    <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{m.description}</div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
+
+      {/* Manually-added custom IDs not in the fetched list */}
+      {customSelected.map(id => (
+        <div key={id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-xs">
+          <Check className="w-3 h-3 text-primary flex-shrink-0" />
+          <span className="font-mono text-foreground flex-1 truncate">{id}</span>
+          <button type="button" onClick={() => onChange(value.filter(v => v !== id))}
+            className="text-muted-foreground hover:text-red-400 transition-colors">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
 
       {/* Custom model ID entry */}
       <button
@@ -184,7 +217,7 @@ function ModelPicker({
         )}
       >
         <Plus className="w-3 h-3 flex-shrink-0" />
-        {showCustom ? "Cancel custom" : (value && !models.find(m => m.id === value) ? `Custom: ${value}` : "Enter custom model ID")}
+        {showCustom ? "Cancel" : "Add custom model ID"}
       </button>
 
       {showCustom && (
@@ -193,17 +226,17 @@ function ModelPicker({
             type="text"
             value={customVal}
             onChange={e => setCustomVal(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && customVal.trim()) { onChange(customVal.trim()); setShowCustom(false); } }}
+            onKeyDown={e => { if (e.key === "Enter") addCustom(); }}
             placeholder="e.g. gemini-2.5-pro-preview"
             className="flex-1 bg-background border border-primary/30 rounded-lg px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono"
             autoFocus
           />
           <button
             type="button"
-            onClick={() => { if (customVal.trim()) { onChange(customVal.trim()); setShowCustom(false); } }}
+            onClick={addCustom}
             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
-            Use
+            Add
           </button>
         </div>
       )}
@@ -219,7 +252,7 @@ export default function AdminApiKeys() {
   const [loading,     setLoading]     = useState(true);
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
   const [form,        setForm]        = useState<FormState>({
-    apiKey: "", baseUrl: "", enabled: true, textModel: "", imageModel: "",
+    apiKey: "", baseUrl: "", enabled: true, textModels: [], imageModels: [],
   });
   const [showKey,       setShowKey]       = useState(false);
   const [saving,        setSaving]        = useState(false);
@@ -259,7 +292,11 @@ export default function AdminApiKeys() {
   function openEdit(p: Provider) {
     if (expandedId === p.id) { setExpandedId(null); return; }
     setExpandedId(p.id);
-    setForm({ apiKey: "", baseUrl: p.baseUrl ?? p.defaultBaseUrl ?? "", enabled: p.enabled, textModel: p.textModel || "", imageModel: p.imageModel || "" });
+    setForm({
+      apiKey: "", baseUrl: p.baseUrl ?? p.defaultBaseUrl ?? "", enabled: p.enabled,
+      textModels:  p.textModels?.length  ? p.textModels  : (p.textModel  ? [p.textModel]  : []),
+      imageModels: p.imageModels?.length ? p.imageModels : (p.imageModel ? [p.imageModel] : []),
+    });
     setShowKey(false);
     setTestStatus("idle"); setTestMsg("");
     setFetchedModels(null); setFetchError(null);
@@ -282,13 +319,13 @@ export default function AdminApiKeys() {
       if (!res.ok) throw new Error(data.detail ?? "Failed to fetch models");
       setFetchedModels(data as FetchedModels);
 
-      // Auto-select best model if form is empty
+      // Auto-select first model if nothing is selected yet
       const txtList: ModelInfo[] = data.textModels  ?? [];
       const imgList: ModelInfo[] = data.imageModels ?? [];
       setForm(f => ({
         ...f,
-        textModel:  f.textModel  || txtList[0]?.id || "",
-        imageModel: f.imageModel || imgList[0]?.id || "",
+        textModels:  f.textModels.length  ? f.textModels  : (txtList[0] ? [txtList[0].id] : []),
+        imageModels: f.imageModels.length ? f.imageModels : (imgList[0] ? [imgList[0].id] : []),
       }));
     } catch (err) {
       setFetchError(String(err instanceof Error ? err.message : err));
@@ -305,7 +342,7 @@ export default function AdminApiKeys() {
       const res = await apiFetch(`/api/admin/api-keys/${providerId}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: key, baseUrl: form.baseUrl.trim() || null, textModel: form.textModel || null }),
+        body: JSON.stringify({ apiKey: key, baseUrl: form.baseUrl.trim() || null, textModel: form.textModels[0] || null }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -329,11 +366,13 @@ export default function AdminApiKeys() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          apiKey:     form.apiKey.trim(),
-          baseUrl:    form.baseUrl.trim() || null,
-          enabled:    form.enabled,
-          textModel:  form.textModel  || null,
-          imageModel: form.imageModel || null,
+          apiKey:      form.apiKey.trim(),
+          baseUrl:     form.baseUrl.trim() || null,
+          enabled:     form.enabled,
+          textModels:  form.textModels.length  ? form.textModels  : null,
+          imageModels: form.imageModels.length ? form.imageModels : null,
+          textModel:   form.textModels[0]  || null,
+          imageModel:  form.imageModels[0] || null,
         }),
       });
       if (!res.ok) {
@@ -442,15 +481,15 @@ export default function AdminApiKeys() {
                     <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{provider.description}</p>
 
                     {/* Active model pills */}
-                    {provider.configured && (provider.textModel || provider.imageModel) && (
+                    {provider.configured && ((provider.textModels?.length ?? 0) > 0 || (provider.imageModels?.length ?? 0) > 0) && (
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
                         {provider.maskedKey && (
                           <span className="text-[10px] font-mono text-muted-foreground/40 self-center mr-0.5">
                             {provider.maskedKey}
                           </span>
                         )}
-                        <ModelBadge icon={MessageSquare} label="Text"  model={provider.textModel} />
-                        <ModelBadge icon={ImageIcon}     label="Image" model={provider.imageModel} />
+                        <ModelBadge icon={MessageSquare} label="Text"  models={provider.textModels  ?? (provider.textModel  ? [provider.textModel]  : [])} />
+                        <ModelBadge icon={ImageIcon}     label="Image" models={provider.imageModels ?? (provider.imageModel ? [provider.imageModel] : [])} />
                       </div>
                     )}
                   </div>
@@ -598,13 +637,13 @@ export default function AdminApiKeys() {
                               label=""
                               icon={MessageSquare}
                               models={fetchedModels.textModels}
-                              value={form.textModel}
-                              onChange={v => setForm(f => ({ ...f, textModel: v }))}
-                              emptyHint="No text models found — enter a custom model ID below"
+                              value={form.textModels}
+                              onChange={v => setForm(f => ({ ...f, textModels: v }))}
+                              emptyHint="No text models found — add a custom model ID below"
                             />
-                            {form.textModel && (
-                              <p className="text-[10px] text-muted-foreground pt-1 font-mono truncate">
-                                Selected: {form.textModel}
+                            {form.textModels.length > 0 && (
+                              <p className="text-[10px] text-muted-foreground pt-1">
+                                <span className="font-semibold">{form.textModels.length}</span> selected · primary: <span className="font-mono">{form.textModels[0]}</span>
                               </p>
                             )}
                           </div>
@@ -622,13 +661,13 @@ export default function AdminApiKeys() {
                               label=""
                               icon={ImageIcon}
                               models={fetchedModels.imageModels}
-                              value={form.imageModel}
-                              onChange={v => setForm(f => ({ ...f, imageModel: v }))}
-                              emptyHint="No image models detected — enter a custom model ID below"
+                              value={form.imageModels}
+                              onChange={v => setForm(f => ({ ...f, imageModels: v }))}
+                              emptyHint="No image models detected — add a custom model ID below"
                             />
-                            {form.imageModel && (
-                              <p className="text-[10px] text-muted-foreground pt-1 font-mono truncate">
-                                Selected: {form.imageModel}
+                            {form.imageModels.length > 0 && (
+                              <p className="text-[10px] text-muted-foreground pt-1">
+                                <span className="font-semibold">{form.imageModels.length}</span> selected · primary: <span className="font-mono">{form.imageModels[0]}</span>
                               </p>
                             )}
                           </div>
