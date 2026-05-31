@@ -14,7 +14,17 @@ The server starts even with no AI key — endpoints return HTTP 503 when called.
 
 Add a new provider: extend KNOWN_PROVIDERS in api_key_store.py and map its
 model names in GEMINI_MODEL_MAP below if needed.
+
+Token accounting & cost logging:
+  - call_ai() extracts token usage from every response.
+  - Pass `db` + `user_id` to write a row to ai_usage_logs automatically.
+  - Monetary cost is calculated via app.utils.token_pricing.
+
+Rate-limit retry:
+  - call_ai() retries up to _RETRY_MAX times on HTTP 429 errors.
+  - Delay is exponential: 2s → 4s → 8s … capped at _RETRY_MAX_DELAY.
 """
+import logging
 import time
 from typing import Literal
 
@@ -22,6 +32,7 @@ from openai import OpenAI
 
 from app.config import settings
 
+logger = logging.getLogger("brand-os.ai.client")
 
 ProviderType = Literal["openai", "gemini"]
 
@@ -29,6 +40,11 @@ _cached_client: OpenAI | None = None
 _cached_provider: ProviderType = "openai"
 _cache_time: float = 0
 _CLIENT_TTL = 60  # seconds — match api_key_store.CACHE_TTL
+
+# ── Retry config for 429 rate-limit errors ────────────────────────────────────
+_RETRY_MAX       = 3
+_RETRY_BASE_DELAY = 2.0    # seconds (doubles each attempt)
+_RETRY_MAX_DELAY  = 30.0   # seconds cap
 
 
 def invalidate_client_cache() -> None:
@@ -141,6 +157,57 @@ def get_image_model() -> str:
     return "gpt-image-1"
 
 
+# ── Internal usage logger ─────────────────────────────────────────────────────
+
+def _log_usage(
+    db,
+    model_api_id: str,
+    capability: str,
+    success: bool,
+    latency_ms: int,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    error_message: str | None = None,
+    user_id: str | None = None,
+    task_type: str | None = None,
+    credits_charged: int = 0,
+) -> None:
+    """
+    Write one row to ai_usage_logs.
+    Silently swallows any DB errors so AI calls are never broken by logging.
+    """
+    try:
+        from app.models import AIUsageLog
+        from app.utils.token_pricing import calculate_cost
+        monetary_cost = calculate_cost(model_api_id, input_tokens, output_tokens)
+        total_tokens  = input_tokens + output_tokens
+
+        log_row = AIUsageLog(
+            user_id=user_id,
+            provider_name=get_provider(),
+            model_api_id=model_api_id,
+            model_name=model_api_id,
+            capability=capability,
+            success=success,
+            error_message=error_message,
+            credits_charged=credits_charged,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            monetary_cost=monetary_cost,
+            task_type=task_type,
+        )
+        db.add(log_row)
+        db.commit()
+    except Exception as exc:
+        logger.debug("ai_usage_log write failed (non-critical): %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 # ── Text completion helper ────────────────────────────────────────────────────
 
 def call_ai(
@@ -148,6 +215,9 @@ def call_ai(
     user_prompt: str,
     max_tokens: int | None = None,
     model: str | None = None,
+    db=None,
+    user_id: str | None = None,
+    task_type: str | None = None,
 ) -> str:
     """
     Send a chat completion request. Returns the text response.
@@ -158,19 +228,90 @@ def call_ai(
       2. `model` argument (explicit override)
       3. settings.ai_text_model (env / default)
     Then mapped through resolve_model() for provider compatibility.
+
+    Token logging (optional):
+      Pass `db` (SQLAlchemy Session) and `user_id` to write a row to
+      ai_usage_logs with token counts, latency, and monetary cost.
+
+    Rate-limit retry:
+      Automatically retries on HTTP 429 with exponential backoff
+      (up to _RETRY_MAX attempts, max delay _RETRY_MAX_DELAY seconds).
     """
     client = get_client()
-    # resolve_model checks DB preference first via get_model_for_use_case("text")
     chosen_model = resolve_model(model or settings.ai_text_model, use_case="text")
     max_tok = max_tokens or settings.ai_max_tokens
 
-    response = client.chat.completions.create(
-        model=chosen_model,
-        max_completion_tokens=max_tok,
-        temperature=settings.ai_temperature,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    return response.choices[0].message.content or ""
+    last_error: Exception | None = None
+
+    for attempt in range(_RETRY_MAX):
+        t0 = time.monotonic()
+        try:
+            response = client.chat.completions.create(
+                model=chosen_model,
+                max_completion_tokens=max_tok,
+                temperature=settings.ai_temperature,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+
+            # ── Extract token usage ───────────────────────────────────────
+            usage         = getattr(response, "usage", None)
+            input_tokens  = getattr(usage, "prompt_tokens",     0) or 0
+            output_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+            # ── Write to ai_usage_logs ────────────────────────────────────
+            if db is not None:
+                _log_usage(
+                    db=db,
+                    model_api_id=chosen_model,
+                    capability="text",
+                    success=True,
+                    latency_ms=latency_ms,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    user_id=user_id,
+                    task_type=task_type,
+                )
+
+            return response.choices[0].message.content or ""
+
+        except Exception as exc:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            last_error = exc
+            err_str    = str(exc)
+
+            # ── Log failure ───────────────────────────────────────────────
+            if db is not None:
+                _log_usage(
+                    db=db,
+                    model_api_id=chosen_model,
+                    capability="text",
+                    success=False,
+                    latency_ms=latency_ms,
+                    error_message=err_str[:500],
+                    user_id=user_id,
+                    task_type=task_type,
+                )
+
+            # ── Retry on 429 rate limit ───────────────────────────────────
+            is_rate_limit = (
+                "rate limit" in err_str.lower()
+                or "429"             in err_str
+                or "too many requests" in err_str.lower()
+                or "ratelimit"        in err_str.lower()
+            )
+            if is_rate_limit and attempt < _RETRY_MAX - 1:
+                delay = min(_RETRY_BASE_DELAY * (2 ** attempt), _RETRY_MAX_DELAY)
+                logger.warning(
+                    "Rate limit on %s (attempt %d/%d) — retrying in %.1fs",
+                    chosen_model, attempt + 1, _RETRY_MAX, delay,
+                )
+                time.sleep(delay)
+                continue
+
+            raise
+
+    raise last_error  # type: ignore[misc]

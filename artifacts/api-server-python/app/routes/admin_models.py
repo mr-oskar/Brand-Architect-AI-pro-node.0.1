@@ -582,6 +582,7 @@ def get_usage_logs(
     capability: Optional[str] = Query(None),
     success: Optional[bool]   = Query(None),
     user_id: Optional[str]    = Query(None),
+    task_type: Optional[str]  = Query(None),
     limit: int                = Query(50, ge=1, le=500),
     offset: int               = Query(0, ge=0),
     db: Session               = Depends(get_db),
@@ -594,6 +595,8 @@ def get_usage_logs(
         q = q.filter(AIUsageLog.success == success)
     if user_id:
         q = q.filter(AIUsageLog.user_id == user_id)
+    if task_type:
+        q = q.filter(AIUsageLog.task_type == task_type)
 
     total = q.count()
     rows  = q.order_by(AIUsageLog.created_at.desc()).offset(offset).limit(limit).all()
@@ -611,6 +614,11 @@ def get_usage_logs(
         "latencyMs": r.latency_ms,
         "isFallback": r.is_fallback,
         "originalModelApiId": r.original_model_api_id,
+        "inputTokens": r.input_tokens,
+        "outputTokens": r.output_tokens,
+        "totalTokens": r.total_tokens,
+        "monetaryCost": r.monetary_cost,
+        "taskType": r.task_type,
         "createdAt": r.created_at.isoformat() if r.created_at else None,
     } for r in rows]
 
@@ -640,6 +648,22 @@ def get_usage_stats(
         AIUsageLog.success == True, AIUsageLog.latency_ms.isnot(None)
     ).scalar()
 
+    # Token + cost totals
+    token_cost_row = db.query(
+        func.coalesce(func.sum(AIUsageLog.total_tokens),  0),
+        func.coalesce(func.sum(AIUsageLog.input_tokens),  0),
+        func.coalesce(func.sum(AIUsageLog.output_tokens), 0),
+        func.coalesce(func.sum(AIUsageLog.monetary_cost), 0.0),
+    ).filter(AIUsageLog.success == True).first()
+
+    total_tokens, input_tokens, output_tokens, total_cost = (
+        (int(token_cost_row[0] or 0),
+         int(token_cost_row[1] or 0),
+         int(token_cost_row[2] or 0),
+         float(token_cost_row[3] or 0.0))
+        if token_cost_row else (0, 0, 0, 0.0)
+    )
+
     return {
         "total": total,
         "success": success,
@@ -648,6 +672,224 @@ def get_usage_stats(
         "avgLatencyMs": round(float(avg_latency), 0) if avg_latency else None,
         "byCapability": [{"capability": c, "count": n} for c, n in by_cap],
         "topModels": [{"modelName": name, "modelApiId": api_id, "count": cnt} for name, api_id, cnt in by_mod],
+        "totalTokens": total_tokens,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "totalCostUsd": round(total_cost, 6),
+    }
+
+
+@admin_router.get("/cost-report")
+def get_cost_report(
+    period:     str           = Query("30d", description="Time window: 1d|7d|30d|90d|all"),
+    group_by:   str           = Query("model",  description="Group by: model|task|day|user"),
+    db: Session               = Depends(get_db),
+    _: User                   = Depends(get_current_admin),
+):
+    """
+    Aggregated token-cost report.
+
+    period  : 1d | 7d | 30d | 90d | all
+    group_by: model | task | day | user
+    """
+    from sqlalchemy import func, case
+    from datetime import datetime, timezone, timedelta
+
+    # ── Period filter ─────────────────────────────────────────────────────────
+    now = datetime.now(timezone.utc)
+    period_days = {"1d": 1, "7d": 7, "30d": 30, "90d": 90, "all": None}
+    days = period_days.get(period, 30)
+    q = db.query(AIUsageLog).filter(AIUsageLog.success == True)
+    if days is not None:
+        since = now - timedelta(days=days)
+        q = q.filter(AIUsageLog.created_at >= since)
+
+    # ── Summary totals ────────────────────────────────────────────────────────
+    summary = q.with_entities(
+        func.count().label("calls"),
+        func.coalesce(func.sum(AIUsageLog.total_tokens),  0).label("total_tokens"),
+        func.coalesce(func.sum(AIUsageLog.input_tokens),  0).label("input_tokens"),
+        func.coalesce(func.sum(AIUsageLog.output_tokens), 0).label("output_tokens"),
+        func.coalesce(func.sum(AIUsageLog.monetary_cost), 0.0).label("total_cost"),
+        func.coalesce(func.avg(AIUsageLog.latency_ms), 0).label("avg_latency"),
+    ).first()
+
+    summary_dict = {
+        "calls":         int(summary.calls       or 0),
+        "totalTokens":   int(summary.total_tokens or 0),
+        "inputTokens":   int(summary.input_tokens or 0),
+        "outputTokens":  int(summary.output_tokens or 0),
+        "totalCostUsd":  round(float(summary.total_cost or 0.0), 6),
+        "avgLatencyMs":  round(float(summary.avg_latency or 0), 0),
+    }
+
+    # ── Grouped breakdown ────────────────────────────────────────────────────
+    breakdown = []
+
+    if group_by == "model":
+        rows = q.with_entities(
+            func.coalesce(AIUsageLog.model_api_id, "unknown").label("key"),
+            func.count().label("calls"),
+            func.coalesce(func.sum(AIUsageLog.total_tokens),  0).label("tokens"),
+            func.coalesce(func.sum(AIUsageLog.monetary_cost), 0.0).label("cost"),
+        ).group_by(AIUsageLog.model_api_id).order_by(func.sum(AIUsageLog.monetary_cost).desc().nullslast()).limit(20).all()
+        breakdown = [{"label": r.key, "calls": int(r.calls), "tokens": int(r.tokens), "costUsd": round(float(r.cost or 0), 6)} for r in rows]
+
+    elif group_by == "task":
+        rows = q.with_entities(
+            func.coalesce(AIUsageLog.task_type, "unknown").label("key"),
+            func.count().label("calls"),
+            func.coalesce(func.sum(AIUsageLog.total_tokens),  0).label("tokens"),
+            func.coalesce(func.sum(AIUsageLog.monetary_cost), 0.0).label("cost"),
+        ).group_by(AIUsageLog.task_type).order_by(func.sum(AIUsageLog.monetary_cost).desc().nullslast()).all()
+        breakdown = [{"label": r.key, "calls": int(r.calls), "tokens": int(r.tokens), "costUsd": round(float(r.cost or 0), 6)} for r in rows]
+
+    elif group_by == "day":
+        rows = q.with_entities(
+            func.date_trunc("day", AIUsageLog.created_at).label("key"),
+            func.count().label("calls"),
+            func.coalesce(func.sum(AIUsageLog.total_tokens),  0).label("tokens"),
+            func.coalesce(func.sum(AIUsageLog.monetary_cost), 0.0).label("cost"),
+        ).group_by(func.date_trunc("day", AIUsageLog.created_at)).order_by(func.date_trunc("day", AIUsageLog.created_at)).all()
+        breakdown = [{"label": str(r.key)[:10] if r.key else "unknown", "calls": int(r.calls), "tokens": int(r.tokens), "costUsd": round(float(r.cost or 0), 6)} for r in rows]
+
+    elif group_by == "user":
+        rows = q.with_entities(
+            func.coalesce(AIUsageLog.user_id, "anonymous").label("key"),
+            func.count().label("calls"),
+            func.coalesce(func.sum(AIUsageLog.total_tokens),  0).label("tokens"),
+            func.coalesce(func.sum(AIUsageLog.monetary_cost), 0.0).label("cost"),
+        ).group_by(AIUsageLog.user_id).order_by(func.sum(AIUsageLog.monetary_cost).desc().nullslast()).limit(50).all()
+        breakdown = [{"label": r.key, "calls": int(r.calls), "tokens": int(r.tokens), "costUsd": round(float(r.cost or 0), 6)} for r in rows]
+
+    return {
+        "period": period,
+        "groupBy": group_by,
+        "summary": summary_dict,
+        "breakdown": breakdown,
+    }
+
+
+@admin_router.get("/health")
+def get_api_health(
+    period: str   = Query("24h", description="Time window: 1h|24h|7d|30d"),
+    db: Session   = Depends(get_db),
+    _: User       = Depends(get_current_admin),
+):
+    """
+    API health metrics: success rate, latency percentiles, error distribution, model performance.
+    """
+    from sqlalchemy import func, case
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    period_hours = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}
+    hours = period_hours.get(period, 24)
+    since = now - timedelta(hours=hours)
+
+    q = db.query(AIUsageLog).filter(AIUsageLog.created_at >= since)
+
+    total   = q.count()
+    success = q.filter(AIUsageLog.success == True).count()
+    failed  = total - success
+
+    # Latency stats (successful calls only)
+    latency_q = q.filter(AIUsageLog.success == True, AIUsageLog.latency_ms.isnot(None))
+    latency_rows = latency_q.with_entities(AIUsageLog.latency_ms).all()
+    latencies = sorted([r[0] for r in latency_rows if r[0] is not None])
+
+    def _percentile(data: list, p: float) -> float | None:
+        if not data:
+            return None
+        k = (len(data) - 1) * p
+        f, c = int(k), min(int(k) + 1, len(data) - 1)
+        return data[f] + (data[c] - data[f]) * (k - f)
+
+    latency_stats = {
+        "avg":  round(sum(latencies) / len(latencies), 0) if latencies else None,
+        "p50":  _percentile(latencies, 0.50),
+        "p90":  _percentile(latencies, 0.90),
+        "p95":  _percentile(latencies, 0.95),
+        "p99":  _percentile(latencies, 0.99),
+        "min":  latencies[0]  if latencies else None,
+        "max":  latencies[-1] if latencies else None,
+    }
+
+    # Error distribution
+    error_rows = (
+        db.query(AIUsageLog)
+        .filter(AIUsageLog.created_at >= since, AIUsageLog.success == False, AIUsageLog.error_message.isnot(None))
+        .with_entities(AIUsageLog.error_message, func.count().label("cnt"))
+        .group_by(AIUsageLog.error_message)
+        .order_by(func.count().desc())
+        .limit(10)
+        .all()
+    )
+    errors = [{"message": r[0][:120] if r[0] else "", "count": int(r[1])} for r in error_rows]
+
+    # Per-model performance
+    model_perf_rows = (
+        q.with_entities(
+            func.coalesce(AIUsageLog.model_api_id, "unknown").label("model"),
+            func.count().label("total"),
+            func.sum(case((AIUsageLog.success == True, 1), else_=0)).label("ok"),
+            func.avg(
+                case((AIUsageLog.success == True, AIUsageLog.latency_ms), else_=None)
+            ).label("avg_lat"),
+            func.coalesce(func.sum(AIUsageLog.total_tokens),  0).label("tokens"),
+        )
+        .group_by(AIUsageLog.model_api_id)
+        .order_by(func.count().desc())
+        .limit(15)
+        .all()
+    )
+    model_perf = [
+        {
+            "model":       r.model,
+            "total":       int(r.total),
+            "success":     int(r.ok or 0),
+            "failed":      int(r.total) - int(r.ok or 0),
+            "successRate": round(int(r.ok or 0) / int(r.total) * 100, 1) if r.total else 0,
+            "avgLatencyMs": round(float(r.avg_lat), 0) if r.avg_lat else None,
+            "totalTokens": int(r.tokens),
+        }
+        for r in model_perf_rows
+    ]
+
+    # Hourly call volume (for sparkline)
+    bucket_hours = 1 if hours <= 24 else (6 if hours <= 168 else 24)
+    volume_rows = (
+        q.with_entities(
+            func.date_trunc(
+                "hour" if bucket_hours == 1 else ("day" if bucket_hours == 24 else "hour"),
+                AIUsageLog.created_at,
+            ).label("bucket"),
+            func.count().label("calls"),
+            func.sum(case((AIUsageLog.success == True, 1), else_=0)).label("ok"),
+        )
+        .group_by("bucket")
+        .order_by("bucket")
+        .all()
+    )
+    volume = [
+        {
+            "time":    str(r.bucket)[:16] if r.bucket else "",
+            "calls":   int(r.calls),
+            "success": int(r.ok or 0),
+        }
+        for r in volume_rows
+    ]
+
+    return {
+        "period": period,
+        "totalCalls": total,
+        "successCalls": success,
+        "failedCalls": failed,
+        "successRate": round(success / total * 100, 1) if total else 0,
+        "latency": latency_stats,
+        "errors": errors,
+        "modelPerformance": model_perf,
+        "callVolume": volume,
     }
 
 

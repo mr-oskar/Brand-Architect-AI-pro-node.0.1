@@ -21,6 +21,7 @@ from typing import Optional
 
 from app.services.ai.client import call_ai, get_client
 from app.config import settings
+from app.utils.token_optimizer import get_max_tokens
 
 
 # ── Platform config ───────────────────────────────────────────────────────────
@@ -202,7 +203,8 @@ Perform deep research and return a JSON object:
 Be deeply specific to {company_name} in the {industry} industry. No generic answers."""
 
     try:
-        raw = call_ai(system_prompt, user_prompt, max_tokens=3000, model="gpt-4o-mini")
+        prompt_len = len(system_prompt) + len(user_prompt)
+        raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("trend_research", prompt_len), model="gpt-4o-mini")
         result = json.loads(_clean_json(raw))
         return result
     except Exception:
@@ -281,7 +283,7 @@ Return JSON:
 Detect language from the brief text. If brief is in Arabic → "arabic". If mixed → "bilingual"."""
 
     try:
-        raw = call_ai(system_prompt, user_prompt, max_tokens=600, model="gpt-4o-mini")
+        raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("brief_analysis"), model="gpt-4o-mini")
         parsed = json.loads(_clean_json(raw))
         parsed["visualStyleFromImages"] = visual_style
         return parsed
@@ -521,7 +523,8 @@ Generate exactly {count} day objects and {count} post objects.
 Every post must feel unmistakably like {company_name} — specific brand, specific audience, specific moment."""
 
     try:
-        raw = call_ai(system_prompt, user_prompt, max_tokens=8192)
+        prompt_len = len(system_prompt) + len(user_prompt)
+        raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("campaign", prompt_len))
         return json.loads(_clean_json(raw))
     except Exception:
         return _build_fallback_campaign(company_name, industry, brand_kit, count)

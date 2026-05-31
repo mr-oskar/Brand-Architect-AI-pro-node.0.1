@@ -330,6 +330,21 @@ class AIUsageLog(Base):
 
     Includes both successful and failed requests, and records fallback chains.
     Never delete rows; archive old ones if the table grows large.
+
+    Token & cost fields (added 2026-05-31):
+      input_tokens   — prompt tokens consumed
+      output_tokens  — completion tokens generated
+      total_tokens   — input + output
+      monetary_cost  — USD cost calculated from token_pricing.py (float, e.g. 0.00001234)
+      task_type      — semantic label: "brand_kit", "campaign", "post_regen", etc.
+
+    DB migration (run once):
+      ALTER TABLE ai_usage_logs
+        ADD COLUMN IF NOT EXISTS input_tokens   INTEGER,
+        ADD COLUMN IF NOT EXISTS output_tokens  INTEGER,
+        ADD COLUMN IF NOT EXISTS total_tokens   INTEGER,
+        ADD COLUMN IF NOT EXISTS monetary_cost  DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS task_type      TEXT;
     """
     __tablename__ = "ai_usage_logs"
 
@@ -348,4 +363,12 @@ class AIUsageLog(Base):
     is_fallback = Column(Boolean, nullable=False, server_default=text("false"))
     original_model_api_id = Column(Text, nullable=True)  # model that was originally requested
     request_context = Column(JSONB, nullable=True)        # extra context (brand_id, post_id, …)
+    # ── Token accounting + cost (added 2026-05-31) ─────────────────────────────
+    input_tokens  = Column(Integer, nullable=True)        # prompt tokens
+    output_tokens = Column(Integer, nullable=True)        # completion tokens
+    total_tokens  = Column(Integer, nullable=True)        # input + output
+    monetary_cost = Column(
+        __import__("sqlalchemy").Float, nullable=True
+    )  # USD, e.g. 0.00001234
+    task_type = Column(Text, nullable=True)               # e.g. "brand_kit", "campaign"
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)

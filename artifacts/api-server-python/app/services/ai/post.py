@@ -12,6 +12,7 @@ from typing import Literal, Optional
 
 from app.services.ai.client import call_ai, get_client
 from app.config import settings
+from app.utils.token_optimizer import get_max_tokens
 
 
 def _clean_json(raw: str) -> str:
@@ -73,7 +74,7 @@ Return ONLY valid JSON:
         client = get_client()
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            max_completion_tokens=4096,
+            max_completion_tokens=get_max_tokens("post_regen", len(prompt)),
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.choices[0].message.content or ""
@@ -142,7 +143,7 @@ Return ONLY a JSON object:
         client = get_client()
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            max_completion_tokens=3000,
+            max_completion_tokens=get_max_tokens("post_variant", len(prompt)),
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.choices[0].message.content or ""
@@ -211,7 +212,9 @@ Brand tone: {tone}
 Return JSON: {{"type": "newsletter", "title": "Newsletter edition name", "subjectLine": "Newsletter subject line", "content": "Full newsletter in markdown. Structure: Personal opening → Main insight/story (400 words) → Quick tips (3 bullets) → Featured resource → CTA → Sign-off."}}"""
 
     try:
-        raw = call_ai(system_prompt, user_prompt, max_tokens=4096)
+        task = f"long_form_{content_type}"
+        prompt_len = len(system_prompt) + len(user_prompt)
+        raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens(task, prompt_len))
         return json.loads(_clean_json(raw))
     except Exception:
         return {

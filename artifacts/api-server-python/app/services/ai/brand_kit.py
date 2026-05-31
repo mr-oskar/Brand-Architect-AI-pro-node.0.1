@@ -14,6 +14,7 @@ import re
 from typing import Optional
 
 from app.services.ai.client import call_ai
+from app.utils.token_optimizer import get_max_tokens
 
 
 # ── BrandKit schema ───────────────────────────────────────────────────────────
@@ -111,7 +112,8 @@ Return a JSON object with EXACTLY these fields (be deeply specific and original 
 
 Be deeply specific, original, and tailored to {company_name}. Every field must reflect this exact company."""
 
-    raw = call_ai(system_prompt, user_prompt, max_tokens=8192)
+    prompt_len = len(system_prompt) + len(user_prompt)
+    raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("brand_kit", prompt_len))
     try:
         kit = json.loads(_clean_json(raw))
     except (json.JSONDecodeError, ValueError):
@@ -162,7 +164,8 @@ Write exactly 3 paragraphs:
 
 Be specific to {company_name}. No generic startup clichés. Every sentence must feel authentic."""
 
-    raw = call_ai(system_prompt, user_prompt, max_tokens=2048)
+    prompt_len = len(system_prompt) + len(user_prompt)
+    raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("brand_story", prompt_len))
     return raw.strip()
 
 

@@ -10,6 +10,33 @@ This file is the **single source of truth** for all work done on this project.
 
 ---
 
+## Session 2026-05-31 — Token Optimization & Cost Monitoring
+
+### Completed [x]
+
+- [x] **DB migration** — `ai_usage_logs` extended with 5 new columns via `ALTER TABLE IF NOT EXISTS`: `input_tokens` (INTEGER), `output_tokens` (INTEGER), `total_tokens` (INTEGER), `monetary_cost` (DOUBLE PRECISION), `task_type` (TEXT). Migration applied and verified against live DB.
+- [x] **`app/utils/token_pricing.py`** — New module. `MODEL_PRICING` dict mapping 30+ model IDs to `(input_per_1k, output_per_1k)` USD pricing. Prefix-based fallback matching for unknown model variants. `calculate_cost(model_id, input_tokens, output_tokens)` → USD float. `get_model_pricing()` + `format_cost_usd()` helpers. Covers OpenAI (gpt-4o-mini through gpt-5), Gemini (1.5/2.0/2.5 flash/pro), and image models (cost = 0 for image-only billing).
+- [x] **`app/utils/token_optimizer.py`** — New module. `_TASK_BUDGETS` dict with optimized ceilings per task type (`brand_kit`=4096, `campaign`=8192, `trend_research`=3000, `brief_analysis`=600, `post_regen`/`post_variant`=1500, `long_form_blog`=4096, etc.). `get_max_tokens(task_type, prompt_length)` scales token budget proportionally for long prompts, clamped to [300, 16384].
+- [x] **`app/services/ai/client.py`** — Major update: (1) `_log_usage()` helper writes token counts + monetary_cost + task_type to `ai_usage_logs` — silently swallows DB errors so AI calls are never broken by logging; (2) `call_ai()` now accepts optional `db`, `user_id`, `task_type` params — extracts `usage.prompt_tokens`/`completion_tokens` from each response; (3) Exponential backoff retry on 429 rate-limit errors (`_RETRY_MAX=3`, base 2s → max 30s).
+- [x] **`app/services/ai/campaign.py`** — All three AI calls now use `get_max_tokens()`: `research_trends_and_opportunities` → `"trend_research"`, `analyze_brief` → `"brief_analysis"`, `generate_campaign` → `"campaign"` (scales with prompt length up to 8192).
+- [x] **`app/services/ai/brand_kit.py`** — `generate_brand_kit` uses `get_max_tokens("brand_kit", prompt_len)` instead of hardcoded 8192; `generate_brand_story` uses `"brand_story"` (1500 tokens).
+- [x] **`app/services/ai/post.py`** — `regenerate_post` uses `get_max_tokens("post_regen")`, `generate_post_variant` uses `"post_variant"`, `generate_long_form_content` uses dynamic `"long_form_{content_type}"`.
+- [x] **`app/routes/admin_models.py`** — Three new/updated endpoints:
+  - `GET /admin/models/logs` — extended response with `inputTokens`, `outputTokens`, `totalTokens`, `monetaryCost`, `taskType`; added `task_type` filter param.
+  - `GET /admin/models/stats` — now includes `totalTokens`, `inputTokens`, `outputTokens`, `totalCostUsd` aggregates.
+  - `GET /admin/models/cost-report?period=30d&group_by=model` — new. Aggregated cost by model/task/day/user. Returns summary totals + breakdown table with cost share %.
+  - `GET /admin/models/health?period=24h` — new. Success rate, latency percentiles (p50/p90/p95/p99), top error distribution, per-model performance table, hourly call volume data.
+- [x] **`artifacts/brand-os/src/pages/AdminCostDashboard.tsx`** — New admin page. Two sections: (1) Cost report with period/groupBy selectors, 4 summary stat cards, sortable breakdown table with cost % bars; (2) API health with success rate, latency cards, model performance table, error list, call volume sparkline, full latency percentile table.
+- [x] **`artifacts/brand-os/src/components/Layout.tsx`** — Added "Cost Monitor" nav item under Admin section (icon: TrendingUp, href: `/admin/cost-dashboard`).
+- [x] **`artifacts/brand-os/src/App.tsx`** — Added lazy route `/admin/cost-dashboard` → `AdminCostDashboard`.
+
+### Notes
+- Token logging is **opt-in at call site** — `call_ai()` only logs when `db` + `user_id` are passed. Routes that want per-request logging should pass the DB session. Direct `client.chat.completions.create()` calls in post.py/campaign.py currently do NOT log tokens (would require passing db session down the call chain — future enhancement).
+- `monetary_cost` will be `NULL` in ai_usage_logs for calls made before this session (no backfill needed).
+- All existing features unbroken: no public API signatures changed, no routes removed.
+
+---
+
 ## Session 2026-05-31 — Multi-select Model Picker
 
 ### Completed [x]
