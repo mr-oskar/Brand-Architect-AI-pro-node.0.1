@@ -88,8 +88,6 @@ externalPort = 4200
 [userenv]
 
 [userenv.shared]
-AUTH_JWT_SECRET = "530d048c3ec09f6ec466f7806c8a19908f81c52c19a6fdc26118e1abcc616894"
-EXTERNAL_DATABASE_URL = "postgresql://neondb_owner:npg_4G5qTkwPyuYC@ep-little-sea-ao1ugmg9-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 [nix]
 channel = "stable-25_05"
