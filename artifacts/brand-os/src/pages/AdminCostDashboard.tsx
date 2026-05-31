@@ -191,7 +191,10 @@ export default function AdminCostDashboard() {
     useQuery<CostReport>({
       queryKey: ["admin-cost-report", period, groupBy],
       queryFn:  () =>
-        apiFetch(`/api/admin/models/cost-report?period=${period}&group_by=${groupBy}`).then(r => r.json()),
+        apiFetch(`/api/admin/models/cost-report?period=${period}&group_by=${groupBy}`).then(async r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json() as Promise<CostReport>;
+        }),
       staleTime: 1000 * 60,
     });
 
@@ -199,12 +202,15 @@ export default function AdminCostDashboard() {
     useQuery<HealthReport>({
       queryKey: ["admin-api-health", healthPeriod],
       queryFn:  () =>
-        apiFetch(`/api/admin/models/health?period=${healthPeriod}`).then(r => r.json()),
+        apiFetch(`/api/admin/models/health?period=${healthPeriod}`).then(async r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json() as Promise<HealthReport>;
+        }),
       staleTime: 1000 * 60,
     });
 
-  const summary = costData?.summary;
-  const health  = healthData;
+  const summary = (costData && typeof costData.summary?.calls === 'number') ? costData.summary : undefined;
+  const health  = (healthData && typeof healthData.successRate === 'number') ? healthData : undefined;
 
   function ErrorBox({ msg }: { msg: string }) {
     return (
