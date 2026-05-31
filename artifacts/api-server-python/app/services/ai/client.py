@@ -16,13 +16,18 @@ Add a new provider: extend KNOWN_PROVIDERS in api_key_store.py and map its
 model names in GEMINI_MODEL_MAP below if needed.
 
 Token accounting & cost logging:
-  - call_ai() extracts token usage from every response.
+  - _execute_call() extracts token usage from every response.
   - Pass `db` + `user_id` to write a row to ai_usage_logs automatically.
   - Monetary cost is calculated via app.utils.token_pricing.
 
 Rate-limit retry:
-  - call_ai() retries up to _RETRY_MAX times on HTTP 429 errors.
+  - _execute_call() retries up to _RETRY_MAX times on HTTP 429 errors.
   - Delay is exponential: 2s → 4s → 8s … capped at _RETRY_MAX_DELAY.
+
+Fallback model:
+  - call_ai_with_fallback() reads per-task primary/fallback from task_model_store.
+  - On any unrecoverable error the fallback model is tried automatically.
+  - Fallback calls are logged with is_fallback=True + original_model_api_id.
 """
 import logging
 import time
@@ -42,7 +47,7 @@ _cache_time: float = 0
 _CLIENT_TTL = 60  # seconds — match api_key_store.CACHE_TTL
 
 # ── Retry config for 429 rate-limit errors ────────────────────────────────────
-_RETRY_MAX       = 3
+_RETRY_MAX        = 3
 _RETRY_BASE_DELAY = 2.0    # seconds (doubles each attempt)
 _RETRY_MAX_DELAY  = 30.0   # seconds cap
 
@@ -171,6 +176,8 @@ def _log_usage(
     user_id: str | None = None,
     task_type: str | None = None,
     credits_charged: int = 0,
+    is_fallback: bool = False,
+    original_model_api_id: str | None = None,
 ) -> None:
     """
     Write one row to ai_usage_logs.
@@ -197,6 +204,8 @@ def _log_usage(
             total_tokens=total_tokens,
             monetary_cost=monetary_cost,
             task_type=task_type,
+            is_fallback=is_fallback,
+            original_model_api_id=original_model_api_id,
         )
         db.add(log_row)
         db.commit()
@@ -208,7 +217,102 @@ def _log_usage(
             pass
 
 
-# ── Text completion helper ────────────────────────────────────────────────────
+# ── Core execution helper (with retry) ────────────────────────────────────────
+
+def _execute_call(
+    system_prompt: str,
+    user_prompt: str,
+    model_id: str,
+    max_tok: int,
+    db=None,
+    user_id: str | None = None,
+    task_type: str | None = None,
+    is_fallback: bool = False,
+    original_model: str | None = None,
+) -> str:
+    """
+    Execute one AI chat completion with the given model_id.
+    Retries up to _RETRY_MAX times on HTTP 429 rate-limit errors.
+    All other errors are raised immediately (caller handles fallback).
+    """
+    client = get_client()
+    last_error: Exception | None = None
+
+    for attempt in range(_RETRY_MAX):
+        t0 = time.monotonic()
+        try:
+            response = client.chat.completions.create(
+                model=model_id,
+                max_completion_tokens=max_tok,
+                temperature=settings.ai_temperature,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+
+            usage         = getattr(response, "usage", None)
+            input_tokens  = getattr(usage, "prompt_tokens",     0) or 0
+            output_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+            if db is not None:
+                _log_usage(
+                    db=db,
+                    model_api_id=model_id,
+                    capability="text",
+                    success=True,
+                    latency_ms=latency_ms,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    user_id=user_id,
+                    task_type=task_type,
+                    is_fallback=is_fallback,
+                    original_model_api_id=original_model,
+                )
+
+            return response.choices[0].message.content or ""
+
+        except Exception as exc:
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            last_error = exc
+            err_str    = str(exc)
+
+            if db is not None:
+                _log_usage(
+                    db=db,
+                    model_api_id=model_id,
+                    capability="text",
+                    success=False,
+                    latency_ms=latency_ms,
+                    error_message=err_str[:500],
+                    user_id=user_id,
+                    task_type=task_type,
+                    is_fallback=is_fallback,
+                    original_model_api_id=original_model,
+                )
+
+            is_rate_limit = (
+                "rate limit"       in err_str.lower()
+                or "429"           in err_str
+                or "too many requests" in err_str.lower()
+                or "ratelimit"     in err_str.lower()
+            )
+            if is_rate_limit and attempt < _RETRY_MAX - 1:
+                delay = min(_RETRY_BASE_DELAY * (2 ** attempt), _RETRY_MAX_DELAY)
+                logger.warning(
+                    "Rate limit on %s (attempt %d/%d) — retrying in %.1fs",
+                    model_id, attempt + 1, _RETRY_MAX, delay,
+                )
+                time.sleep(delay)
+                continue
+
+            raise
+
+    raise last_error  # type: ignore[misc]
+
+
+# ── Public text-completion helpers ────────────────────────────────────────────
 
 def call_ai(
     system_prompt: str,
@@ -220,98 +324,83 @@ def call_ai(
     task_type: str | None = None,
 ) -> str:
     """
-    Send a chat completion request. Returns the text response.
-    Raises RuntimeError if no AI provider is configured.
+    Send a chat completion request using the global model preference.
+    Returns the text response.  Raises RuntimeError if no provider configured.
 
     Model resolution order:
-      1. DB model preference for "text" use-case (admin panel → API Keys → Text model)
+      1. DB model preference for "text" use-case (Admin → API Keys → Text model)
       2. `model` argument (explicit override)
       3. settings.ai_text_model (env / default)
     Then mapped through resolve_model() for provider compatibility.
 
-    Token logging (optional):
-      Pass `db` (SQLAlchemy Session) and `user_id` to write a row to
-      ai_usage_logs with token counts, latency, and monetary cost.
-
-    Rate-limit retry:
-      Automatically retries on HTTP 429 with exponential backoff
-      (up to _RETRY_MAX attempts, max delay _RETRY_MAX_DELAY seconds).
+    Pass `db` + `user_id` to log token usage to ai_usage_logs.
     """
-    client = get_client()
     chosen_model = resolve_model(model or settings.ai_text_model, use_case="text")
-    max_tok = max_tokens or settings.ai_max_tokens
+    max_tok      = max_tokens or settings.ai_max_tokens
+    return _execute_call(
+        system_prompt, user_prompt, chosen_model, max_tok,
+        db=db, user_id=user_id, task_type=task_type,
+    )
 
-    last_error: Exception | None = None
 
-    for attempt in range(_RETRY_MAX):
-        t0 = time.monotonic()
-        try:
-            response = client.chat.completions.create(
-                model=chosen_model,
-                max_completion_tokens=max_tok,
-                temperature=settings.ai_temperature,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_prompt},
-                ],
-            )
-            latency_ms = int((time.monotonic() - t0) * 1000)
+def call_ai_with_fallback(
+    system_prompt: str,
+    user_prompt: str,
+    task_type: str | None = None,
+    max_tokens: int | None = None,
+    model: str | None = None,
+    db=None,
+    user_id: str | None = None,
+) -> str:
+    """
+    Like call_ai() but reads per-task primary/fallback model from task_model_store.
 
-            # ── Extract token usage ───────────────────────────────────────
-            usage         = getattr(response, "usage", None)
-            input_tokens  = getattr(usage, "prompt_tokens",     0) or 0
-            output_tokens = getattr(usage, "completion_tokens", 0) or 0
+    Fallback behaviour:
+      - If the primary model call raises any unrecoverable exception AND a fallback
+        model is configured, the call is retried automatically with the fallback.
+      - The fallback attempt is logged with is_fallback=True and
+        original_model_api_id set to the primary model that failed.
+      - If both models fail, the fallback exception is raised.
+      - If no fallback is configured, the primary exception is raised as normal.
 
-            # ── Write to ai_usage_logs ────────────────────────────────────
-            if db is not None:
-                _log_usage(
-                    db=db,
-                    model_api_id=chosen_model,
-                    capability="text",
-                    success=True,
-                    latency_ms=latency_ms,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    user_id=user_id,
-                    task_type=task_type,
-                )
+    Model resolution order:
+      1. task_model_store primary model for this task_type (Admin → Task Models)
+      2. `model` argument override
+      3. DB model preference (Admin → API Keys → Text model)
+      4. settings.ai_text_model default
+    """
+    from app.utils.task_model_store import get_task_model_config
 
-            return response.choices[0].message.content or ""
+    config           = get_task_model_config(task_type) if task_type else {}
+    primary_override = config.get("primaryModel")
+    fallback_override = config.get("fallbackModel")
 
-        except Exception as exc:
-            latency_ms = int((time.monotonic() - t0) * 1000)
-            last_error = exc
-            err_str    = str(exc)
+    # Resolve primary model
+    raw_primary  = primary_override or model or settings.ai_text_model
+    primary_model = resolve_model(raw_primary, use_case="text")
+    max_tok       = max_tokens or settings.ai_max_tokens
 
-            # ── Log failure ───────────────────────────────────────────────
-            if db is not None:
-                _log_usage(
-                    db=db,
-                    model_api_id=chosen_model,
-                    capability="text",
-                    success=False,
-                    latency_ms=latency_ms,
-                    error_message=err_str[:500],
-                    user_id=user_id,
-                    task_type=task_type,
-                )
-
-            # ── Retry on 429 rate limit ───────────────────────────────────
-            is_rate_limit = (
-                "rate limit" in err_str.lower()
-                or "429"             in err_str
-                or "too many requests" in err_str.lower()
-                or "ratelimit"        in err_str.lower()
-            )
-            if is_rate_limit and attempt < _RETRY_MAX - 1:
-                delay = min(_RETRY_BASE_DELAY * (2 ** attempt), _RETRY_MAX_DELAY)
-                logger.warning(
-                    "Rate limit on %s (attempt %d/%d) — retrying in %.1fs",
-                    chosen_model, attempt + 1, _RETRY_MAX, delay,
-                )
-                time.sleep(delay)
-                continue
-
+    try:
+        return _execute_call(
+            system_prompt, user_prompt, primary_model, max_tok,
+            db=db, user_id=user_id, task_type=task_type,
+            is_fallback=False, original_model=None,
+        )
+    except Exception as primary_exc:
+        if not fallback_override:
             raise
 
-    raise last_error  # type: ignore[misc]
+        fallback_model = resolve_model(fallback_override, use_case="text")
+        if fallback_model == primary_model:
+            raise  # same model — no point retrying
+
+        logger.warning(
+            "call_ai_with_fallback: primary %s failed for task=%s → fallback %s | err: %s",
+            primary_model, task_type, fallback_model, primary_exc,
+        )
+
+        return _execute_call(
+            system_prompt, user_prompt, fallback_model, max_tok,
+            db=db, user_id=user_id, task_type=task_type,
+            is_fallback=True, original_model=primary_model,
+        )

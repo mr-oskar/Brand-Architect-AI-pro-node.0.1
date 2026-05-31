@@ -24,6 +24,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const ComingSoon = lazy(() => import("@/pages/ComingSoon"));
 const AdminApiKeys       = lazy(() => import("@/pages/AdminApiKeys"));
 const AdminCostDashboard = lazy(() => import("@/pages/AdminCostDashboard"));
+const AdminTaskModels    = lazy(() => import("@/pages/AdminTaskModels"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const SignIn = lazy(() => import("@/pages/SignIn"));
 const SignUp = lazy(() => import("@/pages/SignUp"));
@@ -96,6 +97,7 @@ function ProtectedAppShell() {
             <Route path="/campaigns/:id" component={CampaignWorkspace} />
             <Route path="/admin/api-keys"       component={AdminApiKeys} />
             <Route path="/admin/cost-dashboard" component={AdminCostDashboard} />
+            <Route path="/admin/task-models"    component={AdminTaskModels} />
             <Route path="/assets">
               {() => <ComingSoon title="Asset Library" />}
             </Route>

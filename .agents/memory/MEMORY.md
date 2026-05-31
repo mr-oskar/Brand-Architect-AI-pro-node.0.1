@@ -1,3 +1,4 @@
 - [Admin API Key Store](api-key-store.md) — AI keys in DB via api_key_store.py; KNOWN_PROVIDERS = openai/gemini/custom (nano_banana removed); live model fetch via model_fetcher.py.
 - [Model Fetcher](model-fetcher.md) — fetch_models() dispatches to OpenAI REST or Gemini native REST (/v1beta/models?key=); Gemini 'predict' method = image (Imagen); categorises textModels/imageModels.
 - [Token Pricing & Optimizer](token-cost.md) — token_pricing.py (USD/1k tokens per model), token_optimizer.py (task-type budgets); call_ai() logs to ai_usage_logs with input/output/total_tokens + monetary_cost + task_type.
+- [Task Model Store](task-model-store.md) — per-task primary+fallback model config in AppSetting "taskModelConfig"; call_ai_with_fallback() auto-retries on failure; fallback logged with is_fallback=True.

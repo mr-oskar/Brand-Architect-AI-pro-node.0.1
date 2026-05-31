@@ -13,7 +13,7 @@ import json
 import re
 from typing import Optional
 
-from app.services.ai.client import call_ai
+from app.services.ai.client import call_ai_with_fallback
 from app.utils.token_optimizer import get_max_tokens
 
 
@@ -113,7 +113,7 @@ Return a JSON object with EXACTLY these fields (be deeply specific and original 
 Be deeply specific, original, and tailored to {company_name}. Every field must reflect this exact company."""
 
     prompt_len = len(system_prompt) + len(user_prompt)
-    raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("brand_kit", prompt_len))
+    raw = call_ai_with_fallback(system_prompt, user_prompt, task_type="brand_kit", max_tokens=get_max_tokens("brand_kit", prompt_len))
     try:
         kit = json.loads(_clean_json(raw))
     except (json.JSONDecodeError, ValueError):
@@ -165,7 +165,7 @@ Write exactly 3 paragraphs:
 Be specific to {company_name}. No generic startup clichés. Every sentence must feel authentic."""
 
     prompt_len = len(system_prompt) + len(user_prompt)
-    raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens("brand_story", prompt_len))
+    raw = call_ai_with_fallback(system_prompt, user_prompt, task_type="brand_story", max_tokens=get_max_tokens("brand_story", prompt_len))
     return raw.strip()
 
 

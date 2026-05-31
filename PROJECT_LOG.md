@@ -8,6 +8,25 @@ This file is the **single source of truth** for all work done on this project.
 3. Mark items `[x]` when completed and `[ ]` for pending/planned
 4. Never delete old entries — append only
 
+## Session 2026-05-31 — Per-task primary + fallback AI model configuration
+
+### Completed
+- [x] `artifacts/api-server-python/app/utils/task_model_store.py` — new module with 10 `TASK_DEFINITIONS`, `get_task_model_config()`, `save_task_model_config()`, `get_all_configs()`, `invalidate()`. Stores config in `AppSetting` key `"taskModelConfig"` with 60s TTL cache.
+- [x] `artifacts/api-server-python/app/services/ai/client.py` — refactored: extracted `_execute_call()` retry helper; added `call_ai_with_fallback()` which reads task-specific primary/fallback from task_model_store, tries primary, on any exception retries with fallback (logged with `is_fallback=True` + `original_model_api_id`); `call_ai()` unchanged (backward compat); `_log_usage()` gains `is_fallback` + `original_model_api_id` params.
+- [x] `app/services/ai/brand_kit.py` — `generate_brand_kit` + `generate_brand_story` → `call_ai_with_fallback` with `task_type="brand_kit"` / `"brand_story"`.
+- [x] `app/services/ai/campaign.py` — `research_trends_and_opportunities`, `analyze_brief`, `generate_campaign` → `call_ai_with_fallback` with respective task_types.
+- [x] `app/services/ai/post.py` — `regenerate_post`, `generate_post_variant`, `generate_long_form_content` → `call_ai_with_fallback` with respective task_types.
+- [x] `artifacts/api-server-python/app/routes/admin_models.py` — added `GET /admin/models/task-config` and `PUT /admin/models/task-config/{task_type}`.
+- [x] `artifacts/brand-os/src/pages/AdminTaskModels.tsx` — new admin page: table of all 10 tasks, per-row primary/fallback model inputs with suggestions dropdown, per-row Save/Revert, dirty-state tracking.
+- [x] `artifacts/brand-os/src/components/Layout.tsx` — added `Cpu` icon + "Task Models" nav item in Admin section.
+- [x] `artifacts/brand-os/src/App.tsx` — added lazy route `/admin/task-models → AdminTaskModels`.
+
+### Verified
+- API test: `GET /admin/models/task-config` → 10 tasks, all fields present
+- API test: `PUT /admin/models/task-config/brand_kit` → saves primary=gpt-4o, fallback=gpt-4o-mini
+- Both servers running cleanly, no errors in logs
+- TypeScript: only pre-existing TS6305 errors (api-client-react not built), zero new errors
+
 ---
 
 ## Session 2026-05-31 — Token Optimization & Cost Monitoring

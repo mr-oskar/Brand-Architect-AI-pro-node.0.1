@@ -894,6 +894,61 @@ def get_api_health(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN: Per-task primary + fallback model configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@admin_router.get("/task-config")
+def get_task_model_configs(
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_admin),
+):
+    """
+    Return the full list of AI tasks with their configured primary + fallback models.
+    Tasks without an override return primaryModel=null, fallbackModel=null.
+    """
+    from app.utils.task_model_store import get_all_configs, TASK_DEFINITIONS
+    current = get_all_configs()
+    result = []
+    for task_type, info in TASK_DEFINITIONS.items():
+        cfg = current.get(task_type, {})
+        result.append({
+            "taskType":     task_type,
+            "label":        info["label"],
+            "description":  info["description"],
+            "primaryModel":  cfg.get("primaryModel")  or None,
+            "fallbackModel": cfg.get("fallbackModel") or None,
+        })
+    return result
+
+
+@admin_router.put("/task-config/{task_type}")
+def set_task_model_config(
+    task_type: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User     = Depends(get_current_admin),
+):
+    """
+    Save primary + fallback model for one task type.
+    Pass primaryModel="" or null to clear the override.
+
+    Body: { "primaryModel": "gpt-4o", "fallbackModel": "gpt-4o-mini" }
+    """
+    from app.utils.task_model_store import save_task_model_config, TASK_DEFINITIONS
+    if task_type not in TASK_DEFINITIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown task type: {task_type}")
+
+    primary  = (body.get("primaryModel")  or "").strip() or None
+    fallback = (body.get("fallbackModel") or "").strip() or None
+    save_task_model_config(db, task_type, primary, fallback)
+    return {
+        "taskType":     task_type,
+        "primaryModel":  primary,
+        "fallbackModel": fallback,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # PUBLIC: Available models for current user
 # ═══════════════════════════════════════════════════════════════════════════════
 

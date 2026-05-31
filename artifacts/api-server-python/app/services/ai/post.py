@@ -10,7 +10,7 @@ import json
 import re
 from typing import Literal, Optional
 
-from app.services.ai.client import call_ai, get_client
+from app.services.ai.client import call_ai, call_ai_with_fallback, get_client
 from app.config import settings
 from app.utils.token_optimizer import get_max_tokens
 
@@ -71,13 +71,8 @@ Return ONLY valid JSON:
 }}"""
 
     try:
-        client = get_client()
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_completion_tokens=get_max_tokens("post_regen", len(prompt)),
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.choices[0].message.content or ""
+        system_prompt = "You are a world-class social media copywriter. Return only valid JSON."
+        raw = call_ai_with_fallback(system_prompt, prompt, task_type="post_regen", max_tokens=get_max_tokens("post_regen", len(prompt)))
         return json.loads(_clean_json(raw))
     except Exception:
         return {
@@ -140,13 +135,8 @@ Return ONLY a JSON object:
 }}"""
 
     try:
-        client = get_client()
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_completion_tokens=get_max_tokens("post_variant", len(prompt)),
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.choices[0].message.content or ""
+        system_prompt = "You are a world-class social media copywriter. Return only valid JSON."
+        raw = call_ai_with_fallback(system_prompt, prompt, task_type="post_variant", max_tokens=get_max_tokens("post_variant", len(prompt)))
         return json.loads(_clean_json(raw))
     except Exception:
         return {
@@ -214,7 +204,7 @@ Return JSON: {{"type": "newsletter", "title": "Newsletter edition name", "subjec
     try:
         task = f"long_form_{content_type}"
         prompt_len = len(system_prompt) + len(user_prompt)
-        raw = call_ai(system_prompt, user_prompt, max_tokens=get_max_tokens(task, prompt_len))
+        raw = call_ai_with_fallback(system_prompt, user_prompt, task_type=task, max_tokens=get_max_tokens(task, prompt_len))
         return json.loads(_clean_json(raw))
     except Exception:
         return {
