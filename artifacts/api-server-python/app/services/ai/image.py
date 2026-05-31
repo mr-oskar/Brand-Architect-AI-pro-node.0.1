@@ -7,7 +7,11 @@ The active image model is resolved from:
   2. settings.gemini_image_model env var (Gemini only)
   3. Hardcoded defaults (gpt-image-1 / gemini-2.5-flash-preview-image-generation)
 
-Images are returned as bytes and stored via image_storage.py.
+FIX (2026-05-31): DALL-E 3 and gpt-image-1 do NOT support images.edit with file uploads.
+  - generate_image_with_logo_reference: now uses images.generate with logo embedded in prompt
+  - generate_image_with_references: uses images.edit only for dall-e-2; for all other models
+    it encodes references as base64 in the request (gpt-image-1 supports image[] input)
+    or falls back to prompt-only generation.
 """
 import base64
 import re
@@ -24,17 +28,14 @@ def _extract_image_bytes(response) -> bytes:
     """
     Extract raw image bytes from an OpenAI images response.
     Handles both b64_json (preferred) and url (fallback) response formats.
-    The OpenAI SDK returns Image objects — use attribute access, NOT .get().
     """
     items = response.data or []
     if not items:
         raise RuntimeError("AI returned no image data")
     item = items[0]
-    # Prefer inline base64
     b64 = getattr(item, "b64_json", None)
     if b64:
         return base64.b64decode(b64)
-    # Fallback: download from URL
     url = getattr(item, "url", None)
     if url:
         r = httpx.get(url, timeout=120.0, follow_redirects=True)
@@ -78,8 +79,6 @@ def _with_aspect_hint(prompt: str, size: Optional[ImageSize]) -> str:
 def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> bytes:
     """Call Gemini image generation API directly."""
     gemini_key = _get_gemini_image_key()
-
-    # Use provided model, or resolve from DB/default
     img_model = model or get_image_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{img_model}:generateContent"
 
@@ -105,12 +104,24 @@ def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> by
         for part in candidate.get("content", {}).get("parts", []):
             inline = part.get("inlineData") or part.get("inline_data")
             if inline:
-                img_data = inline.get("data") or inline.get("data")
+                img_data = inline.get("data")
                 if img_data:
                     return base64.b64decode(img_data)
 
     raise RuntimeError("Gemini returned no image data")
 
+
+def _is_edit_capable(img_model: str) -> bool:
+    """
+    Return True only for models that support images.edit with file uploads.
+    Only dall-e-2 supports the classic edit endpoint with local file uploads.
+    gpt-image-1 supports image[] input via images.generate (not images.edit).
+    dall-e-3 does NOT support images.edit at all.
+    """
+    return "dall-e-2" in img_model.lower()
+
+
+# ── Public generation functions ───────────────────────────────────────────────
 
 def generate_image_bytes(
     prompt: str,
@@ -122,7 +133,6 @@ def generate_image_bytes(
     if provider == "gemini":
         return _gemini_generate_image([{"text": _with_aspect_hint(prompt, size)}])
 
-    # OpenAI — use DB-preferred image model
     client = get_client()
     img_model = get_image_model()
     response = client.images.generate(
@@ -141,10 +151,12 @@ def generate_image_with_logo_reference(
 ) -> bytes:
     """
     Generate an image using a logo as a reference image.
-    The logo is fed as a reference to guide the visual style.
-    """
-    import io as _io
 
+    FIX: DALL-E 3 / gpt-image-1 do not support images.edit with file uploads.
+    For those models we embed the logo as base64 in the request (gpt-image-1
+    supports image[] input natively). For dall-e-2 we use the classic edit API.
+    For any failure we fall back to prompt-only generation.
+    """
     base64_data = logo_data_url.split(",", 1)[-1] if "," in logo_data_url else logo_data_url
     mime_type = "image/png" if logo_data_url.startswith("data:image/png") else "image/jpeg"
     provider = get_provider()
@@ -155,18 +167,44 @@ def generate_image_with_logo_reference(
             {"text": _with_aspect_hint(prompt, size)},
         ])
 
-    # OpenAI images.edit — use DB-preferred image model
     client = get_client()
     img_model = get_image_model()
-    image_bytes = base64.b64decode(base64_data)
-    image_file = ("logo-reference.png", _io.BytesIO(image_bytes), mime_type)
-    response = client.images.edit(
-        model=img_model,
-        image=image_file,
-        prompt=prompt,
-        size=size if size != "auto" else "1024x1024",
-    )
-    return _extract_image_bytes(response)
+
+    # gpt-image-1 supports image[] parameter in images.generate
+    if "gpt-image-1" in img_model.lower():
+        try:
+            image_bytes = base64.b64decode(base64_data)
+            image_file = io.BytesIO(image_bytes)
+            image_file.name = "logo-reference.png"
+            response = client.images.generate(
+                model=img_model,
+                image=[image_file],
+                prompt=prompt,
+                size=size if size != "auto" else "1024x1024",
+                response_format="b64_json",
+            )
+            return _extract_image_bytes(response)
+        except Exception:
+            # Fall back to prompt-only if image[] not accepted
+            return generate_image_bytes(prompt, size)
+
+    # dall-e-2: use classic images.edit
+    if _is_edit_capable(img_model):
+        try:
+            image_bytes = base64.b64decode(base64_data)
+            image_file = ("logo-reference.png", io.BytesIO(image_bytes), mime_type)
+            response = client.images.edit(
+                model=img_model,
+                image=image_file,
+                prompt=prompt,
+                size=size if size != "auto" else "1024x1024",
+            )
+            return _extract_image_bytes(response)
+        except Exception:
+            return generate_image_bytes(prompt, size)
+
+    # dall-e-3 or unknown model: prompt-only generation (no edit support)
+    return generate_image_bytes(prompt, size)
 
 
 def generate_image_with_references(
@@ -178,7 +216,11 @@ def generate_image_with_references(
 ) -> bytes:
     """
     Generate an image using multiple reference images (logo + others).
-    Falls back to text-only generation if no references provided.
+    Falls back to text-only generation if no references provided or on error.
+
+    FIX: Only dall-e-2 supports images.edit with file uploads.
+    For gpt-image-1 we use image[] in images.generate.
+    For dall-e-3 and others we fall back to prompt-only.
     """
     if not reference_data_urls:
         return generate_image_bytes(prompt, size)
@@ -194,31 +236,66 @@ def generate_image_with_references(
         parts.append({"text": _with_aspect_hint(prompt, size)})
         return _gemini_generate_image(parts)
 
-    # OpenAI multi-image edit — use DB-preferred image model
-    import io as _io
     client = get_client()
     img_model = get_image_model()
-    image_files = []
-    for url in reference_data_urls:
-        b64 = url.split(",", 1)[-1] if "," in url else url
-        mime = "image/png" if url.startswith("data:image/png") else "image/jpeg"
-        ext = "png" if mime == "image/png" else "jpg"
-        img_bytes = base64.b64decode(b64)
-        image_files.append((f"reference.{ext}", _io.BytesIO(img_bytes), mime))
 
-    edit_params: dict = {
-        "model": img_model,
-        "image": image_files,
-        "prompt": prompt,
-        "size": size if size != "auto" else "1024x1024",
-    }
-    if quality and quality != "auto":
-        edit_params["quality"] = quality
-    if background and background != "auto":
-        edit_params["background"] = background
+    # gpt-image-1: supports image[] in images.generate
+    if "gpt-image-1" in img_model.lower():
+        try:
+            image_files = []
+            for url in reference_data_urls:
+                b64 = url.split(",", 1)[-1] if "," in url else url
+                img_bytes = base64.b64decode(b64)
+                buf = io.BytesIO(img_bytes)
+                buf.name = "reference.png"
+                image_files.append(buf)
 
-    response = client.images.edit(**edit_params)
-    return _extract_image_bytes(response)
+            gen_params: dict = {
+                "model": img_model,
+                "image": image_files,
+                "prompt": prompt,
+                "size": size if size != "auto" else "1024x1024",
+                "response_format": "b64_json",
+            }
+            if quality and quality != "auto":
+                gen_params["quality"] = quality
+            if background and background != "auto":
+                gen_params["background"] = background
+
+            response = client.images.generate(**gen_params)
+            return _extract_image_bytes(response)
+        except Exception:
+            return generate_image_bytes(prompt, size)
+
+    # dall-e-2: classic images.edit supports file uploads
+    if _is_edit_capable(img_model):
+        try:
+            image_files = []
+            for url in reference_data_urls:
+                b64 = url.split(",", 1)[-1] if "," in url else url
+                mime = "image/png" if url.startswith("data:image/png") else "image/jpeg"
+                ext = "png" if mime == "image/png" else "jpg"
+                img_bytes = base64.b64decode(b64)
+                image_files.append((f"reference.{ext}", io.BytesIO(img_bytes), mime))
+
+            edit_params: dict = {
+                "model": img_model,
+                "image": image_files,
+                "prompt": prompt,
+                "size": size if size != "auto" else "1024x1024",
+            }
+            if quality and quality != "auto":
+                edit_params["quality"] = quality
+            if background and background != "auto":
+                edit_params["background"] = background
+
+            response = client.images.edit(**edit_params)
+            return _extract_image_bytes(response)
+        except Exception:
+            return generate_image_bytes(prompt, size)
+
+    # dall-e-3 or unknown: prompt-only fallback
+    return generate_image_bytes(prompt, size)
 
 
 def enhance_prompt(
@@ -241,7 +318,6 @@ def enhance_prompt(
     if model == "nano":
         return prompt
 
-    # ── Detect Arabic ──────────────────────────────────────────────────────────
     arabic_in_overlay = _has_arabic(overlay_text)
     arabic_in_prompt = _has_arabic(prompt)
     arabic_text_note = ""
@@ -261,7 +337,6 @@ def enhance_prompt(
             "Treat it as high-priority typographic element."
         )
 
-    # ── Build brand context block ──────────────────────────────────────────────
     brand_lines: list[str] = []
     if brand_name:
         brand_lines.append(f"Brand name: {brand_name}")
@@ -286,7 +361,6 @@ def enhance_prompt(
 
     client = get_client()
 
-    # ── Mini: light enhancement ────────────────────────────────────────────────
     if model == "mini":
         parts = [
             "Enhance this social media image prompt to be more vivid and visually specific for AI image generation.",
@@ -307,7 +381,6 @@ def enhance_prompt(
         except Exception:
             return prompt
 
-    # ── Pro: full art-direction with brand DNA ─────────────────────────────────
     system = (
         "You are a world-class creative director, art director, and brand photographer with 20 years "
         "of experience crafting campaign imagery for global brands. "

@@ -8,6 +8,38 @@ This file is the **single source of truth** for all work done on this project.
 3. Mark items `[x]` when completed and `[ ]` for pending/planned
 4. Never delete old entries — append only
 
+## Session 2026-05-31 — Critical bug fixes (image gen, job store persistence)
+
+### Completed
+- [x] **Fix 1 — DALL-E 3 / gpt-image-1 images.edit bug** (`app/services/ai/image.py`)
+  - Root cause: `images.edit` with file uploads only works for `dall-e-2`. gpt-image-1 and dall-e-3 do NOT support it.
+  - Fix: `generate_image_with_logo_reference()` and `generate_image_with_references()` now dispatch by model:
+    - `gpt-image-1` → `images.generate` with `image[]` param (native multi-image input)
+    - `dall-e-2` → `images.edit` (classic file-upload edit API)
+    - `dall-e-3` / unknown → `images.generate` prompt-only fallback
+  - Added `_is_edit_capable()` guard; all paths fall back to prompt-only on any exception.
+
+- [x] **Fix 2 — AI Keys "duplication" clarified** (no code change needed)
+  - `admin.py` → `/api/admin/api-keys/*` — primary system used by frontend `AdminApiKeys.tsx`
+  - `admin_models.py` → `/api/admin/models/*` — advanced model management layer (no route conflict)
+  - Confirmed: zero route collision, both systems coexist correctly.
+
+- [x] **Fix 3 — JobStore DB persistence** (`app/services/job_store.py`)
+  - Root cause: jobs were purely in-memory; lost on every server restart, breaking async campaign generation.
+  - Fix: rewrote JobStore to use raw psycopg2 connections against a new `background_jobs` table.
+  - Key detail: had to use raw psycopg2 (`engine.raw_connection()`) with `%(param)s` style — SQLAlchemy `text()` with `::jsonb` cast conflicts with psycopg2 parameter parsing.
+  - Also fixed: psycopg2 auto-parses JSON TEXT columns to Python dicts; `_db_read()` now handles both `dict` and `str` result types.
+  - Table is auto-created on first `JobStore()` init (safe to call on every startup).
+  - In-memory cache (10s TTL) retained for fast polling; DB is authoritative on cache miss.
+  - Verified: jobs survive full cache eviction and are readable from DB.
+
+### Pending (next session)
+- [ ] Stripe payments integration
+- [ ] Email system
+- [ ] Fill in 5 "Coming Soon" pages
+
+---
+
 ## Session 2026-05-31 — Per-task primary + fallback AI model configuration
 
 ### Completed

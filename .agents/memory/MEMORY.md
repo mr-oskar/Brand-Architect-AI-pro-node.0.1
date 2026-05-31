@@ -2,3 +2,5 @@
 - [Model Fetcher](model-fetcher.md) — fetch_models() dispatches to OpenAI REST or Gemini native REST (/v1beta/models?key=); Gemini 'predict' method = image (Imagen); categorises textModels/imageModels.
 - [Token Pricing & Optimizer](token-cost.md) — token_pricing.py (USD/1k tokens per model), token_optimizer.py (task-type budgets); call_ai() logs to ai_usage_logs with input/output/total_tokens + monetary_cost + task_type.
 - [Task Model Store](task-model-store.md) — per-task primary+fallback model config in AppSetting "taskModelConfig"; call_ai_with_fallback() auto-retries on failure; fallback logged with is_fallback=True.
+- [Image Gen Model Dispatch](image-model-dispatch.md) — gpt-image-1 uses images.generate+image[], dall-e-2 uses images.edit, dall-e-3/others use prompt-only; _is_edit_capable() guard.
+- [JobStore DB Persistence](job-store-db.md) — jobs in background_jobs table via raw psycopg2 (NOT SQLAlchemy text()); psycopg2 auto-parses JSON TEXT→dict so _db_read handles both str and dict.
