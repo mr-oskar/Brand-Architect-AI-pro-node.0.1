@@ -20,7 +20,7 @@ from typing import Optional, Literal
 
 import httpx
 
-from app.services.ai.client import get_client, get_provider, resolve_model, get_image_model
+from app.services.ai.client import get_client, get_provider, resolve_model, get_image_model, call_ai
 from app.config import settings
 
 
@@ -111,6 +111,15 @@ def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> by
     raise RuntimeError("Gemini returned no image data")
 
 
+def _supports_response_format(img_model: str) -> bool:
+    """
+    Only dall-e-2 and dall-e-3 support the response_format parameter.
+    gpt-image-1 always returns base64 and rejects the parameter outright.
+    """
+    m = img_model.lower()
+    return "dall-e-2" in m or "dall-e-3" in m
+
+
 def _is_edit_capable(img_model: str) -> bool:
     """
     Return True only for models that support images.edit with file uploads.
@@ -161,12 +170,14 @@ def generate_image_bytes(
 
     client = get_client()
     img_model = model_override or get_image_model()
-    response = client.images.generate(
-        model=img_model,
-        prompt=prompt,
-        size=size if size != "auto" else "1024x1024",
-        response_format="b64_json",
-    )
+    gen_params: dict = {
+        "model": img_model,
+        "prompt": prompt,
+        "size": size if size != "auto" else "1024x1024",
+    }
+    if _supports_response_format(img_model):
+        gen_params["response_format"] = "b64_json"
+    response = client.images.generate(**gen_params)
     return _extract_image_bytes(response)
 
 
@@ -205,13 +216,15 @@ def generate_image_with_logo_reference(
             image_bytes = base64.b64decode(base64_data)
             image_file = io.BytesIO(image_bytes)
             image_file.name = "logo-reference.png"
-            response = client.images.generate(
-                model=img_model,
-                image=[image_file],
-                prompt=prompt,
-                size=size if size != "auto" else "1024x1024",
-                response_format="b64_json",
-            )
+            logo_params: dict = {
+                "model": img_model,
+                "image": [image_file],
+                "prompt": prompt,
+                "size": size if size != "auto" else "1024x1024",
+            }
+            if _supports_response_format(img_model):
+                logo_params["response_format"] = "b64_json"
+            response = client.images.generate(**logo_params)
             return _extract_image_bytes(response)
         except Exception:
             return generate_image_bytes(prompt, size, model_override=model_override)
@@ -286,8 +299,9 @@ def generate_image_with_references(
                 "image": image_files,
                 "prompt": prompt,
                 "size": size if size != "auto" else "1024x1024",
-                "response_format": "b64_json",
             }
+            if _supports_response_format(img_model):
+                gen_params["response_format"] = "b64_json"
             if quality and quality != "auto":
                 gen_params["quality"] = quality
             if background and background != "auto":
@@ -390,8 +404,6 @@ def enhance_prompt(
             brand_lines.append(f"Background tone: {background}")
     brand_block = "\n".join(brand_lines)
 
-    client = get_client()
-
     if model == "mini":
         parts = [
             "Enhance this social media image prompt to be more vivid and visually specific for AI image generation.",
@@ -403,12 +415,12 @@ def enhance_prompt(
         parts.append(f"\nReturn ONLY the enhanced prompt:\n\n{prompt}{arabic_text_note}")
 
         try:
-            response = client.chat.completions.create(
-                model=resolve_model("gpt-4o-mini", use_case="text"),
-                max_completion_tokens=500,
-                messages=[{"role": "user", "content": "\n".join(parts)}],
-            )
-            return (response.choices[0].message.content or "").strip() or prompt
+            return call_ai(
+                system_prompt="You are a professional AI image prompt enhancer.",
+                user_prompt="\n".join(parts),
+                max_tokens=500,
+                task_type="post_image_prompt",
+            ).strip() or prompt
         except Exception:
             return prompt
 
@@ -455,14 +467,11 @@ def enhance_prompt(
     ]
 
     try:
-        response = client.chat.completions.create(
-            model=resolve_model("gpt-4o", use_case="text"),
-            max_completion_tokens=700,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": "\n".join(user_parts)},
-            ],
-        )
-        return (response.choices[0].message.content or "").strip() or prompt
+        return call_ai(
+            system_prompt=system,
+            user_prompt="\n".join(user_parts),
+            max_tokens=700,
+            task_type="post_image_prompt",
+        ).strip() or prompt
     except Exception:
         return prompt

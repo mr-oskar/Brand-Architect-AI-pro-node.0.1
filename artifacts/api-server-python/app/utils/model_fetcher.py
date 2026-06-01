@@ -25,7 +25,7 @@ logger = logging.getLogger("brand-os")
 
 # ── OpenAI / Custom (OpenAI-compatible) ───────────────────────────────────────
 
-_TEXT_PREFIXES   = ("gpt-4", "gpt-3", "o1", "o3", "o4", "chatgpt-", "gemma", "llama", "mistral",
+_TEXT_PREFIXES   = ("gpt-5", "gpt-4", "gpt-3", "o1", "o3", "o4", "chatgpt-", "gemma", "llama", "mistral",
                     "claude", "command", "qwen", "deepseek", "phi", "mixtral", "openchat")
 _IMAGE_PREFIXES  = ("dall-e", "gpt-image", "flux", "stable-diffusion", "sdxl", "midjourney",
                     "imagen", "realistic-vision")

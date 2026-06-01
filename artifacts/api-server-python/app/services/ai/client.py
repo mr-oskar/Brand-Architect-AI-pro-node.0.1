@@ -41,6 +41,15 @@ logger = logging.getLogger("brand-os.ai.client")
 
 ProviderType = Literal["openai", "gemini"]
 
+# Models that do NOT accept the `temperature` parameter.
+# GPT-5+ and all O-series (o1, o3, o4) have temperature fixed at 1.
+_NO_TEMPERATURE_PREFIXES = ("gpt-5", "o1-", "o3-", "o4-", "o1", "o3", "o4")
+
+
+def _is_no_temperature_model(model_id: str) -> bool:
+    m = model_id.lower()
+    return any(m.startswith(p) or m == p.rstrip("-") for p in _NO_TEMPERATURE_PREFIXES)
+
 _cached_client: OpenAI | None = None
 _cached_provider: ProviderType = "openai"
 _cache_time: float = 0
@@ -241,15 +250,19 @@ def _execute_call(
     for attempt in range(_RETRY_MAX):
         t0 = time.monotonic()
         try:
-            response = client.chat.completions.create(
-                model=model_id,
-                max_completion_tokens=max_tok,
-                temperature=settings.ai_temperature,
-                messages=[
+            completion_params: dict = {
+                "model": model_id,
+                "max_completion_tokens": max_tok,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": user_prompt},
                 ],
-            )
+            }
+            # GPT-5+ and O-series models do not accept `temperature` (fixed at 1)
+            if not _is_no_temperature_model(model_id):
+                completion_params["temperature"] = settings.ai_temperature
+
+            response = client.chat.completions.create(**completion_params)
             latency_ms = int((time.monotonic() - t0) * 1000)
 
             usage         = getattr(response, "usage", None)
