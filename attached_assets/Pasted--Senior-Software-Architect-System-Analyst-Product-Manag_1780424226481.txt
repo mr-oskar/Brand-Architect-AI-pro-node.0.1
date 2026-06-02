@@ -1,0 +1,636 @@
+
+---
+
+البرومت
+
+أنت فريق كامل مكون من:
+
+Senior Software Architect
+
+System Analyst
+
+Product Manager
+
+SaaS Architect
+
+Backend Architect (Python + FastAPI)
+
+Frontend Architect (Next.js)
+
+Database Architect
+
+DevOps Engineer
+
+AI Agent Architect
+
+Security Engineer
+
+QA Engineer
+
+
+مهمتك هي تحليل المشروع الحالي بالكامل وكتابة توثيق شامل  لإعادة تصميمه وبنائه من الصفر بنفس الوظائف والمميزات الموجودة حالياً ولكن بمعمارية احترافية وقابلة للتوسع والتطوير والصيانة على مستوى الشركات الكبرى SaaS Enterprise.
+
+المرحلة الأولى: تحليل المشروع
+
+قم بتحليل المشروع الحالي بالكامل واكتشاف:
+
+الهدف الرئيسي للمشروع
+
+جميع الوظائف الموجودة
+
+جميع الشاشات والواجهات
+
+جميع الـ APIs
+
+جميع قواعد البيانات
+
+جميع العمليات الداخلية
+
+جميع أنواع المستخدمين
+
+جميع الصلاحيات
+
+جميع سير العمل Workflows
+
+جميع الخدمات المرتبطة
+
+جميع أدوات الذكاء الاصطناعي المستخدمة
+
+جميع نقاط الضعف الحالية
+
+جميع المشاكل المعمارية
+
+جميع الاختناقات المحتملة عند التوسع
+
+
+ثم قم بإعداد تقرير شامل يحتوي على:
+
+Product Analysis
+
+وصف المشروع
+
+هدف المشروع
+
+الفئة المستهدفة
+
+القيمة التي يقدمها
+
+
+Feature Analysis
+
+استخرج جميع المميزات الموجودة ورتبها حسب:
+
+Core Features
+
+Advanced Features
+
+AI Features
+
+Admin Features
+
+SaaS Features
+
+
+
+---
+
+المرحلة الثانية: إعادة تصميم المنتج
+
+قم بإعادة تصميم المشروع بالكامل كمنصة SaaS احترافية.
+
+يجب أن يكون التصميم:
+
+Multi-Tenant
+
+Cloud Ready
+
+AI Native
+
+Enterprise Grade
+
+Highly Scalable
+
+Maintainable
+
+Modular
+
+
+قم بإعداد:
+
+Product Requirements Document (PRD)
+
+يتضمن:
+
+Vision
+
+Goals
+
+Business Logic
+
+User Stories
+
+Functional Requirements
+
+Non Functional Requirements
+
+
+
+---
+
+المرحلة الثالثة: تصميم النظام
+
+أنشئ System Design متكامل يشمل:
+
+High Level Architecture
+
+Frontend
+
+Backend
+
+AI Services
+
+Database
+
+Cache
+
+Queue
+
+Storage
+
+Monitoring
+
+Authentication
+
+Billing
+
+
+مع رسم الهيكلية بالكامل.
+
+
+---
+
+المرحلة الرابعة: تصميم Backend
+
+استخدم:
+
+Python
+
+FastAPI
+
+
+أنشئ معمارية احترافية قابلة للتوسع.
+
+هيكل المشروع:
+
+backend/
+
+app/
+
+api/
+v1/
+v2/
+
+core/
+
+services/
+
+repositories/
+
+models/
+
+schemas/
+
+middlewares/
+
+events/
+
+workers/
+
+agents/
+
+workflows/
+
+integrations/
+
+database/
+
+auth/
+
+billing/
+
+notifications/
+
+files/
+
+analytics/
+
+monitoring/
+
+tests/
+
+قم بتحديد:
+
+جميع APIs
+
+جميع Endpoints
+
+جميع Request Models
+
+جميع Response Models
+
+جميع Services
+
+جميع Repositories
+
+جميع Events
+
+
+
+---
+
+المرحلة الخامسة: تصميم قاعدة البيانات
+
+صمم قاعدة بيانات احترافية.
+
+حدد:
+
+جميع الجداول
+
+جميع العلاقات
+
+جميع الفهارس
+
+جميع القيود
+
+
+مع إنشاء ERD كامل.
+
+يجب دعم:
+
+آلاف المستخدمين
+
+ملايين السجلات
+
+Multi Tenant
+
+
+
+---
+
+المرحلة السادسة: تصميم AI Layer
+
+المشروع يعتمد على AI Agents.
+
+قم بتصميم:
+
+Agent Orchestration System
+
+يتضمن:
+
+Master Agent
+
+Planner Agent
+
+Analyst Agent
+
+Development Agent
+
+UI Agent
+
+QA Agent
+
+Deployment Agent
+
+
+يجب أن يكون لكل Agent:
+
+Role
+
+Inputs
+
+Outputs
+
+Memory
+
+Tools
+
+Workflow
+
+
+
+---
+
+المرحلة السابعة: تصميم Workflows
+
+حدد جميع Workflow الخاصة بالمشروع.
+
+لكل Workflow:
+
+Trigger
+
+Steps
+
+Inputs
+
+Outputs
+
+Failures
+
+Recovery Strategy
+
+
+
+---
+
+المرحلة الثامنة: تصميم Frontend
+
+استخدم:
+
+Next.js
+
+
+قم بإعادة إنشاء واجهة المشروع بالكامل.
+
+أنشئ:
+
+Sitemap
+
+Navigation Structure
+
+Pages
+
+لكل صفحة:
+
+اسم الصفحة
+
+الهدف منها
+
+المكونات
+
+الأقسام
+
+البيانات المعروضة
+
+العمليات المتاحة
+
+حالات التحميل
+
+حالات الخطأ
+
+صلاحيات الوصول
+
+
+
+---
+
+المرحلة التاسعة: صفحات النظام
+
+قم بتفصيل جميع الصفحات بالكامل.
+
+مثال:
+
+Dashboard
+
+يتضمن:
+
+Statistics
+
+Recent Activity
+
+Notifications
+
+Usage Analytics
+
+AI Insights
+
+
+Projects
+
+يتضمن:
+
+Create Project
+
+Edit Project
+
+Delete Project
+
+Archive Project
+
+
+AI Workspace
+
+يتضمن:
+
+Chat Interface
+
+Agents Panel
+
+Task Manager
+
+Workflow Builder
+
+Execution Logs
+
+
+Team Management
+
+Billing
+
+Settings
+
+API Keys
+
+Integrations
+
+Files
+
+Analytics
+
+Monitoring
+
+Admin Panel
+
+قم بتفصيل جميع العناصر الموجودة داخل كل صفحة.
+
+
+---
+
+المرحلة العاشرة: SaaS Features
+
+يجب أن يدعم النظام:
+
+Authentication
+
+Authorization
+
+RBAC
+
+Organizations
+
+Teams
+
+Workspaces
+
+Subscriptions
+
+Billing
+
+Usage Tracking
+
+API Keys
+
+Audit Logs
+
+Activity Logs
+
+Notifications
+
+Feature Flags
+
+
+
+---
+
+المرحلة الحادية عشرة: الأداء والتوسع
+
+صمم النظام ليدعم:
+
+100,000+ Users
+
+Thousands Concurrent Users
+
+Millions Requests
+
+
+استخدم:
+
+Redis
+
+Background Workers
+
+Queues
+
+Caching
+
+Load Balancing
+
+Horizontal Scaling
+
+
+
+---
+
+المرحلة الثانية عشرة: الأمن
+
+طبق:
+
+JWT Authentication
+
+Refresh Tokens
+
+RBAC
+
+Rate Limiting
+
+API Security
+
+Encryption
+
+Audit Logging
+
+OWASP Best Practices
+
+
+
+---
+
+المرحلة الثالثة عشرة: DevOps
+
+صمم:
+
+Docker
+
+Docker Compose
+
+CI/CD
+
+Staging
+
+Production
+
+Monitoring
+
+Logging
+
+Backups
+
+
+
+---
+
+المرحلة الرابعة عشرة: التنفيذ
+
+قم بتقسيم المشروع إلى Epics ثم Features ثم Tasks.
+
+لكل Task حدد:
+
+الوصف
+
+الأولوية
+
+المدة
+
+التبعيات
+
+ملفات التنفيذ
+
+
+ثم أنشئ Roadmap كاملة من البداية حتى الإطلاق النهائي.
+
+
+---
+
+المخرجات المطلوبة:
+
+1. تحليل المشروع الحالي بالكامل.
+
+
+2. إعادة تصميم المنتج كمنصة SaaS احترافية.
+
+
+3. System Design كامل.
+
+
+4. Database Design كامل.
+
+
+5. Backend Architecture كامل باستخدام FastAPI.
+
+
+6. Frontend Architecture كامل باستخدام Next.js.
+
+
+7. AI Agent Architecture كامل.
+
+
+8. جميع الصفحات والواجهات بالتفصيل.
+
+
+9. جميع APIs بالتفصيل.
+
+
+10. جميع Workflows بالتفصيل.
+
+
+11. خطة التنفيذ الكاملة.
+
+
+12. تقسيم المهام والملفات والمجلدات.
+
+
+13. إنشاء مجلد التوثيق الخاص بتوثيقات  لانشاء المشروع الجديد بالكامل بنفس المميزات مع تحسينات احترافية وقابلية توسع Enterprise Grade. 
+
+
+
+
+---
