@@ -128,7 +128,7 @@ GEMINI_MODEL_MAP = {
     "gpt-5-nano": "gemini-2.5-flash",
     "gpt-5-mini": "gemini-2.5-flash",
     "gpt-5.2": "gemini-2.5-pro",
-    "gpt-image-1": "gemini-2.5-flash-preview-image-generation",
+    "gpt-image-1": "gemini-2.0-flash-exp-image-generation",
 }
 
 # Reverse map: Gemini model → Gemini model (passthrough for already-mapped names)
@@ -167,7 +167,7 @@ def get_image_model() -> str:
         return preferred
     provider = get_provider()
     if provider == "gemini":
-        return settings.gemini_image_model or "gemini-2.5-flash-preview-image-generation"
+        return settings.gemini_image_model or "gemini-2.0-flash-exp-image-generation"
     return "gpt-image-1"
 
 

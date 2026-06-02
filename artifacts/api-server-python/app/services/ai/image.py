@@ -76,57 +76,120 @@ def _with_aspect_hint(prompt: str, size: Optional[ImageSize]) -> str:
     return f"{prompt}\n\nAspect ratio: {hint}." if hint else prompt
 
 
+# Fallback chain tried when the configured Gemini image model returns 404.
+# gemini-2.0-flash-exp-image-generation → generateContent + responseModalities
+# imagen-3.0-generate-001               → predict endpoint (text-to-image)
 _GEMINI_IMAGE_FALLBACKS = [
-    "gemini-2.5-flash-preview-image-generation",
-    "gemini-2.0-flash-preview-image-generation",
-    "imagen-3.0-generate-002",
+    "gemini-2.0-flash-exp-image-generation",
+    "imagen-3.0-generate-001",
 ]
+
+
+def _is_imagen_model(m: str) -> bool:
+    """Return True for Imagen models that use the :predict endpoint."""
+    return m.lower().startswith("imagen")
 
 
 def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> bytes:
     """
     Call Gemini image generation API directly.
+
+    Routing:
+    - imagen-*  models → POST /:predict  (Imagen REST API)
+    - gemini-*  models → POST /:generateContent with responseModalities=["IMAGE","TEXT"]
+
     If the configured model returns 404 (model not found), automatically retries
     with known-valid fallback models before raising an error.
     """
+    import logging as _log
+    _logger = _log.getLogger("brand-os")
+
     gemini_key = _get_gemini_image_key()
     img_model = model or get_image_model()
 
-    def _try_model(m: str) -> bytes:
+    def _extract_text_from_parts(p: list[dict]) -> str:
+        """Pull the text prompt out of a parts list (for Imagen which is text-only)."""
+        for item in p:
+            t = item.get("text", "")
+            if t:
+                return t
+        return ""
+
+    def _try_gemini_model(m: str) -> bytes:
+        """Try a gemini-* model via generateContent + responseModalities."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
         with httpx.Client(timeout=120.0) as client:
             resp = client.post(
                 url,
                 params={"key": gemini_key},
-                json={"contents": [{"parts": parts}]},
+                json={
+                    "contents": [{"parts": parts}],
+                    "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+                },
             )
         if not resp.is_success:
             txt = resp.text
             if resp.status_code == 429 or any(kw in txt.lower() for kw in ("quota", "free_tier", "billing")):
                 raise RuntimeError(
                     "Gemini image generation requires a paid plan. "
-                    "Set OPENAI_API_KEY for image generation, or enable billing on your Google AI Studio account."
+                    "Enable billing on your Google AI Studio account or use an OpenAI key instead."
                 )
             if resp.status_code == 404:
                 raise _ModelNotFoundError(m, txt)
             raise RuntimeError(f"Gemini image generation failed ({resp.status_code}): {txt}")
 
         data = resp.json()
-        candidates = data.get("candidates", [])
-        for candidate in candidates:
+        for candidate in data.get("candidates", []):
             for part in candidate.get("content", {}).get("parts", []):
                 inline = part.get("inlineData") or part.get("inline_data")
                 if inline:
                     img_data = inline.get("data")
                     if img_data:
                         return base64.b64decode(img_data)
-        raise RuntimeError("Gemini returned no image data")
+        raise RuntimeError("Gemini returned no image data in response")
+
+    def _try_imagen_model(m: str) -> bytes:
+        """Try an imagen-* model via the :predict endpoint."""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:predict"
+        prompt_text = _extract_text_from_parts(parts)
+        if not prompt_text:
+            raise RuntimeError("Imagen requires a text prompt but none was found in parts")
+        with httpx.Client(timeout=120.0) as client:
+            resp = client.post(
+                url,
+                params={"key": gemini_key},
+                json={
+                    "instances": [{"prompt": prompt_text}],
+                    "parameters": {"sampleCount": 1},
+                },
+            )
+        if not resp.is_success:
+            txt = resp.text
+            if resp.status_code == 429 or any(kw in txt.lower() for kw in ("quota", "free_tier", "billing")):
+                raise RuntimeError(
+                    "Imagen image generation requires a paid plan. "
+                    "Enable billing on your Google AI Studio account or use an OpenAI key instead."
+                )
+            if resp.status_code == 404:
+                raise _ModelNotFoundError(m, txt)
+            raise RuntimeError(f"Imagen image generation failed ({resp.status_code}): {txt}")
+
+        data = resp.json()
+        for pred in data.get("predictions", []):
+            b64 = pred.get("bytesBase64Encoded")
+            if b64:
+                return base64.b64decode(b64)
+        raise RuntimeError("Imagen returned no image data in response")
+
+    def _try_model(m: str) -> bytes:
+        if _is_imagen_model(m):
+            return _try_imagen_model(m)
+        return _try_gemini_model(m)
 
     try:
         return _try_model(img_model)
     except _ModelNotFoundError:
-        import logging as _log
-        _log.getLogger("brand-os").warning(
+        _logger.warning(
             "Gemini image model '%s' not found (404). Trying fallbacks: %s",
             img_model, _GEMINI_IMAGE_FALLBACKS,
         )
@@ -136,12 +199,13 @@ def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> by
             try:
                 return _try_model(fallback)
             except _ModelNotFoundError:
+                _logger.warning("Fallback model '%s' also returned 404, trying next.", fallback)
                 continue
         raise RuntimeError(
             f"Gemini image generation failed: model '{img_model}' was not found "
             f"and all fallback models also failed. "
-            f"Go to Admin → API Keys and select a valid Gemini image model such as "
-            f"'gemini-2.5-flash-preview-image-generation'."
+            f"Go to Admin → API Keys and select a valid image model such as "
+            f"'gemini-2.0-flash-exp-image-generation' or 'imagen-3.0-generate-001'."
         )
 
 

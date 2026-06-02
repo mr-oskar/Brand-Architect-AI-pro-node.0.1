@@ -151,7 +151,7 @@ class GeminiProvider(BaseProvider):
     OPENAI_COMPAT_BASE  = "https://generativelanguage.googleapis.com/v1beta/openai/"
     NATIVE_IMAGE_BASE   = "https://generativelanguage.googleapis.com/v1beta/models"
     DEFAULT_TEXT_MODEL  = "gemini-2.5-flash"
-    DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-preview-image-generation"
+    DEFAULT_IMAGE_MODEL = "gemini-2.0-flash-exp-image-generation"
 
     _ASPECT_HINTS = {
         "1024x1024": "square (1:1)",

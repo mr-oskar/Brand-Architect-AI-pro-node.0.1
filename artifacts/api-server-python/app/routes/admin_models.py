@@ -955,22 +955,20 @@ def set_task_model_config(
 _KEYSTORE_IMAGE_MODELS: dict[str, list[str]] = {
     "openai":  ["gpt-image-1", "dall-e-3", "dall-e-2"],
     "gemini":  [
-        "gemini-2.5-flash-preview-image-generation",
-        "gemini-2.0-flash-preview-image-generation",
-        "imagen-3.0-generate-002",
+        "gemini-2.0-flash-exp-image-generation",
+        "imagen-3.0-generate-001",
         "imagen-3.0-fast-generate-001",
     ],
     "custom":  [],
 }
 
 _KEYSTORE_IMAGE_DESCRIPTIONS: dict[str, str] = {
-    "gpt-image-1":   "Latest OpenAI image model — supports reference images & logo inlining",
-    "dall-e-3":      "High quality & creative — does not support reference image input",
-    "dall-e-2":      "Fast & cost-effective — supports classic edit/inpainting API",
-    "gemini-2.5-flash-preview-image-generation": "Latest Gemini image model — higher quality output",
-    "gemini-2.0-flash-preview-image-generation": "Fast Gemini image generation with multi-modal input",
-    "imagen-3.0-generate-002":      "Google Imagen 3 — photorealistic image generation",
-    "imagen-3.0-fast-generate-001": "Google Imagen 3 Fast — faster, lower cost image generation",
+    "gpt-image-1":                        "Latest OpenAI image model — supports reference images & logo inlining",
+    "dall-e-3":                            "High quality & creative — does not support reference image input",
+    "dall-e-2":                            "Fast & cost-effective — supports classic edit/inpainting API",
+    "gemini-2.0-flash-exp-image-generation": "Gemini native image generation — multi-modal input supported",
+    "imagen-3.0-generate-001":             "Google Imagen 3 — photorealistic image generation (text-only prompt)",
+    "imagen-3.0-fast-generate-001":        "Google Imagen 3 Fast — faster, lower cost (text-only prompt)",
 }
 
 

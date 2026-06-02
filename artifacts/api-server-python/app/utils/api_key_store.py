@@ -48,7 +48,7 @@ _LEGACY_ALIAS = {"nano_banana": "custom"}
 # Default fallback models (used before any live fetch)
 PROVIDER_DEFAULTS = {
     "openai":  {"text": "gpt-4o-mini",            "image": "gpt-image-1"},
-    "gemini":  {"text": "gemini-2.5-flash",        "image": "gemini-2.5-flash-preview-image-generation"},
+    "gemini":  {"text": "gemini-2.5-flash",        "image": "gemini-2.0-flash-exp-image-generation"},
     "custom":  {"text": "gpt-4o-mini",             "image": "gpt-image-1"},
     "nano_banana": {"text": "gpt-4o-mini",         "image": "gpt-image-1"},   # legacy
 }
