@@ -77,10 +77,13 @@ def _with_aspect_hint(prompt: str, size: Optional[ImageSize]) -> str:
 
 
 # Fallback chain tried when the configured Gemini image model returns 404.
-# gemini-2.0-flash-exp-image-generation → generateContent + responseModalities
-# imagen-3.0-generate-001               → predict endpoint (text-to-image)
+# Ordered from newest/most-likely-available to older.
 _GEMINI_IMAGE_FALLBACKS = [
+    "gemini-2.0-flash-preview-image-generation",
     "gemini-2.0-flash-exp-image-generation",
+    "gemini-2.5-flash-preview-05-20",
+    "imagen-3.0-generate-002",
+    "imagen-3.0-fast-generate-001",
     "imagen-3.0-generate-001",
 ]
 
@@ -201,11 +204,43 @@ def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> by
             except _ModelNotFoundError:
                 _logger.warning("Fallback model '%s' also returned 404, trying next.", fallback)
                 continue
+        # All Gemini models failed — fall back to OpenAI if a key is available
+        _logger.warning(
+            "All Gemini image models failed (404). Falling back to OpenAI image generation."
+        )
+        # Resolve an OpenAI key: DB entry first, then OPENAI_API_KEY env var
+        try:
+            from app.utils.api_key_store import _get_entry, _ensure_fresh
+            _ensure_fresh()
+            oa_entry = _get_entry("openai")
+            openai_key = (oa_entry.get("apiKey") or "").strip() or settings.openai_api_key or ""
+        except Exception:
+            openai_key = settings.openai_api_key or ""
+
+        if openai_key:
+            try:
+                from openai import OpenAI as _OAI
+                _oai_client = _OAI(api_key=openai_key)
+                prompt_text = _extract_text_from_parts(parts)
+                if not prompt_text:
+                    prompt_text = "Create a high-quality marketing image."
+                resp = _oai_client.images.generate(
+                    model="dall-e-3",
+                    prompt=prompt_text,
+                    size="1024x1024",
+                )
+                url = resp.data[0].url if resp.data else None
+                if url:
+                    r = httpx.get(url, timeout=120.0, follow_redirects=True)
+                    r.raise_for_status()
+                    return r.content
+            except Exception as _openai_err:
+                _logger.warning("OpenAI fallback also failed: %s", _openai_err)
+
         raise RuntimeError(
-            f"Gemini image generation failed: model '{img_model}' was not found "
-            f"and all fallback models also failed. "
-            f"Go to Admin → API Keys and select a valid image model such as "
-            f"'gemini-2.0-flash-exp-image-generation' or 'imagen-3.0-generate-001'."
+            "Image generation failed: all Gemini models returned 404 "
+            "and no working OpenAI key was found. "
+            "Go to Admin → API Keys and configure a valid image model."
         )
 
 
