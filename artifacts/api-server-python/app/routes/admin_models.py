@@ -955,8 +955,10 @@ def set_task_model_config(
 _KEYSTORE_IMAGE_MODELS: dict[str, list[str]] = {
     "openai":  ["gpt-image-1", "dall-e-3", "dall-e-2"],
     "gemini":  [
-        "gemini-2.0-flash-preview-image-generation",
         "gemini-2.5-flash-preview-image-generation",
+        "gemini-2.0-flash-preview-image-generation",
+        "imagen-3.0-generate-002",
+        "imagen-3.0-fast-generate-001",
     ],
     "custom":  [],
 }
@@ -965,8 +967,10 @@ _KEYSTORE_IMAGE_DESCRIPTIONS: dict[str, str] = {
     "gpt-image-1":   "Latest OpenAI image model — supports reference images & logo inlining",
     "dall-e-3":      "High quality & creative — does not support reference image input",
     "dall-e-2":      "Fast & cost-effective — supports classic edit/inpainting API",
+    "gemini-2.5-flash-preview-image-generation": "Latest Gemini image model — higher quality output",
     "gemini-2.0-flash-preview-image-generation": "Fast Gemini image generation with multi-modal input",
-    "gemini-2.5-flash-preview-image-generation": "Latest Gemini image model — higher quality",
+    "imagen-3.0-generate-002":      "Google Imagen 3 — photorealistic image generation",
+    "imagen-3.0-fast-generate-001": "Google Imagen 3 Fast — faster, lower cost image generation",
 }
 
 
@@ -1049,13 +1053,25 @@ def get_available_models(
 
     # ── System A: api_key_store fallback ──────────────────────────────────────
     from app.services.ai.client import get_provider, get_image_model  # noqa: PLC0415
+    from app.utils.api_key_store import get_models_for_use_case  # noqa: PLC0415
 
     provider = get_provider() or "openai"
     configured_img = get_image_model()
     models = []
 
     if not capability or capability == "image":
-        candidates = list(_KEYSTORE_IMAGE_MODELS.get(provider, []))
+        # Include ALL admin-configured image models (not just the first one)
+        admin_image_models = get_models_for_use_case("image")
+
+        # Start with admin-configured models (they appear first, marked as default if primary)
+        candidates: list[str] = list(admin_image_models)
+
+        # Then add known-valid models for this provider as discovery options
+        for m in _KEYSTORE_IMAGE_MODELS.get(provider, []):
+            if m not in candidates:
+                candidates.append(m)
+
+        # Also ensure the resolved default is included
         if configured_img and configured_img not in candidates:
             candidates.insert(0, configured_img)
 
@@ -1075,21 +1091,39 @@ def get_available_models(
             })
 
     if not capability or capability == "text":
-        try:
-            from app.services.ai.client import resolve_model  # noqa: PLC0415
-            txt = resolve_model("gpt-4o", use_case="text")
-            if txt:
+        # Include ALL admin-configured text models
+        admin_text_models = get_models_for_use_case("text")
+
+        if admin_text_models:
+            for i, txt in enumerate(admin_text_models):
+                if not txt:
+                    continue
                 models.append({
                     "id":           txt,
                     "name":         _nice_model_name(txt),
-                    "description":  "Active text generation model",
+                    "description":  "Admin-configured text generation model" if i > 0 else "Primary text generation model",
                     "capability":   "text",
-                    "isDefault":    True,
+                    "isDefault":    i == 0,
                     "providerType": provider,
                     "source":       "keystore",
                 })
-        except Exception:
-            pass
+        else:
+            # Fallback: resolve whichever model is currently active
+            try:
+                from app.services.ai.client import resolve_model  # noqa: PLC0415
+                txt = resolve_model("gpt-4o", use_case="text")
+                if txt:
+                    models.append({
+                        "id":           txt,
+                        "name":         _nice_model_name(txt),
+                        "description":  "Active text generation model",
+                        "capability":   "text",
+                        "isDefault":    True,
+                        "providerType": provider,
+                        "source":       "keystore",
+                    })
+            except Exception:
+                pass
 
     return {"models": models, "source": "keystore"}
 

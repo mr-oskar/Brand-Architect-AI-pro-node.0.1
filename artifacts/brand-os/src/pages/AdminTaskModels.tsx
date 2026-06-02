@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Cpu, Save, RotateCcw, ChevronDown, ChevronUp, Info } from "lucide-react";
+import { Cpu, Save, RotateCcw, ChevronDown, ChevronUp, Info, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +16,16 @@ interface TaskConfig {
   fallbackModel: string | null;
 }
 
-// ── Suggested models ──────────────────────────────────────────────────────────
+interface AvailableModel {
+  id: string;
+  name: string;
+  capability: string;
+  isDefault: boolean;
+}
 
-const MODEL_SUGGESTIONS = [
+// ── Static fallback suggestions (shown when no API key is configured) ─────────
+
+const STATIC_SUGGESTIONS = [
   { group: "OpenAI", models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o4-mini", "o3"] },
   { group: "Gemini", models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"] },
 ];
@@ -29,12 +36,16 @@ function ModelInput({
   value,
   onChange,
   placeholder,
+  configuredModels,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
+  configuredModels: AvailableModel[];
 }) {
   const [open, setOpen] = useState(false);
+
+  const configuredTextModels = configuredModels.filter((m) => m.capability === "text");
 
   return (
     <div className="relative">
@@ -58,8 +69,31 @@ function ModelInput({
       </div>
 
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-xl overflow-hidden">
-          {MODEL_SUGGESTIONS.map((grp) => (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+          {/* Configured models from API Keys — shown first */}
+          {configuredTextModels.length > 0 && (
+            <div>
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-primary uppercase tracking-wider bg-primary/5 border-b border-border flex items-center gap-1.5">
+                <Zap className="w-2.5 h-2.5" /> Configured in API Keys
+              </div>
+              {configuredTextModels.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-xs font-mono hover:bg-primary/10 hover:text-primary transition-colors flex items-center justify-between gap-2"
+                  onMouseDown={() => { onChange(m.id); setOpen(false); }}
+                >
+                  <span>{m.id}</span>
+                  {m.isDefault && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary font-semibold flex-shrink-0">default</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Static fallback suggestions */}
+          {STATIC_SUGGESTIONS.map((grp) => (
             <div key={grp.group}>
               <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/40 border-b border-border">
                 {grp.group}
@@ -76,6 +110,7 @@ function ModelInput({
               ))}
             </div>
           ))}
+
           <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-t border-border">
             Or type any model name manually
           </div>
@@ -90,9 +125,11 @@ function ModelInput({
 function TaskRow({
   task,
   onSaved,
+  configuredModels,
 }: {
   task: TaskConfig;
   onSaved: (updated: TaskConfig) => void;
+  configuredModels: AvailableModel[];
 }) {
   const [primary,  setPrimary]  = useState(task.primaryModel  ?? "");
   const [fallback, setFallback] = useState(task.fallbackModel ?? "");
@@ -173,6 +210,7 @@ function TaskRow({
             value={primary}
             onChange={setPrimary}
             placeholder="e.g. gpt-4o  (blank = global default)"
+            configuredModels={configuredModels}
           />
         </div>
         <div className="space-y-1">
@@ -184,6 +222,7 @@ function TaskRow({
             value={fallback}
             onChange={setFallback}
             placeholder="e.g. gpt-4o-mini  (optional)"
+            configuredModels={configuredModels}
           />
         </div>
       </div>
@@ -228,21 +267,31 @@ function TaskRow({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AdminTaskModels() {
-  const [tasks,   setTasks]   = useState<TaskConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [tasks,            setTasks]            = useState<TaskConfig[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState<string | null>(null);
+  const [configuredModels, setConfiguredModels] = useState<AvailableModel[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/admin/models/task-config");
-      if (!res.ok) {
-        setError(await extractApiError(res));
+      const [configRes, modelsRes] = await Promise.all([
+        apiFetch("/api/admin/models/task-config"),
+        apiFetch("/api/ai/models").catch(() => null),
+      ]);
+
+      if (!configRes.ok) {
+        setError(await extractApiError(configRes));
         return;
       }
-      const data: TaskConfig[] = await res.json();
+      const data: TaskConfig[] = await configRes.json();
       setTasks(data);
+
+      if (modelsRes?.ok) {
+        const modelsData = await modelsRes.json().catch(() => ({ models: [] }));
+        setConfiguredModels(modelsData.models ?? []);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load task configs";
       setError(msg);
@@ -308,7 +357,7 @@ export default function AdminTaskModels() {
       ) : (
         <div className="space-y-3">
           {tasks.map((task) => (
-            <TaskRow key={task.taskType} task={task} onSaved={handleSaved} />
+            <TaskRow key={task.taskType} task={task} onSaved={handleSaved} configuredModels={configuredModels} />
           ))}
         </div>
       )}

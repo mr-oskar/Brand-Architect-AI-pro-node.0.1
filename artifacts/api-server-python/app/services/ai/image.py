@@ -76,39 +76,79 @@ def _with_aspect_hint(prompt: str, size: Optional[ImageSize]) -> str:
     return f"{prompt}\n\nAspect ratio: {hint}." if hint else prompt
 
 
+_GEMINI_IMAGE_FALLBACKS = [
+    "gemini-2.5-flash-preview-image-generation",
+    "gemini-2.0-flash-preview-image-generation",
+    "imagen-3.0-generate-002",
+]
+
+
 def _gemini_generate_image(parts: list[dict], model: Optional[str] = None) -> bytes:
-    """Call Gemini image generation API directly."""
+    """
+    Call Gemini image generation API directly.
+    If the configured model returns 404 (model not found), automatically retries
+    with known-valid fallback models before raising an error.
+    """
     gemini_key = _get_gemini_image_key()
     img_model = model or get_image_model()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{img_model}:generateContent"
 
-    with httpx.Client(timeout=120.0) as client:
-        resp = client.post(
-            url,
-            params={"key": gemini_key},
-            json={"contents": [{"parts": parts}]},
+    def _try_model(m: str) -> bytes:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        with httpx.Client(timeout=120.0) as client:
+            resp = client.post(
+                url,
+                params={"key": gemini_key},
+                json={"contents": [{"parts": parts}]},
+            )
+        if not resp.is_success:
+            txt = resp.text
+            if resp.status_code == 429 or any(kw in txt.lower() for kw in ("quota", "free_tier", "billing")):
+                raise RuntimeError(
+                    "Gemini image generation requires a paid plan. "
+                    "Set OPENAI_API_KEY for image generation, or enable billing on your Google AI Studio account."
+                )
+            if resp.status_code == 404:
+                raise _ModelNotFoundError(m, txt)
+            raise RuntimeError(f"Gemini image generation failed ({resp.status_code}): {txt}")
+
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        for candidate in candidates:
+            for part in candidate.get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data")
+                if inline:
+                    img_data = inline.get("data")
+                    if img_data:
+                        return base64.b64decode(img_data)
+        raise RuntimeError("Gemini returned no image data")
+
+    try:
+        return _try_model(img_model)
+    except _ModelNotFoundError:
+        import logging as _log
+        _log.getLogger("brand-os").warning(
+            "Gemini image model '%s' not found (404). Trying fallbacks: %s",
+            img_model, _GEMINI_IMAGE_FALLBACKS,
+        )
+        for fallback in _GEMINI_IMAGE_FALLBACKS:
+            if fallback == img_model:
+                continue
+            try:
+                return _try_model(fallback)
+            except _ModelNotFoundError:
+                continue
+        raise RuntimeError(
+            f"Gemini image generation failed: model '{img_model}' was not found "
+            f"and all fallback models also failed. "
+            f"Go to Admin → API Keys and select a valid Gemini image model such as "
+            f"'gemini-2.5-flash-preview-image-generation'."
         )
 
-    if not resp.is_success:
-        txt = resp.text
-        if resp.status_code == 429 or any(kw in txt.lower() for kw in ("quota", "free_tier", "billing")):
-            raise RuntimeError(
-                "Gemini image generation requires a paid plan. "
-                "Set OPENAI_API_KEY for image generation, or enable billing on your Google AI Studio account."
-            )
-        raise RuntimeError(f"Gemini image generation failed ({resp.status_code}): {txt}")
 
-    data = resp.json()
-    candidates = data.get("candidates", [])
-    for candidate in candidates:
-        for part in candidate.get("content", {}).get("parts", []):
-            inline = part.get("inlineData") or part.get("inline_data")
-            if inline:
-                img_data = inline.get("data")
-                if img_data:
-                    return base64.b64decode(img_data)
-
-    raise RuntimeError("Gemini returned no image data")
+class _ModelNotFoundError(Exception):
+    def __init__(self, model: str, detail: str = ""):
+        self.model = model
+        super().__init__(f"Model not found: {model} — {detail}")
 
 
 def _supports_response_format(img_model: str) -> bool:
@@ -139,11 +179,13 @@ def _effective_provider(model_override: Optional[str] = None) -> str:
     as the global default in api_key_store.
 
     Priority:
-      1. model_override contains "gemini" → gemini
+      1. model_override contains "gemini" or "imagen" → gemini
       2. Otherwise → configured provider from api_key_store
     """
-    if model_override and "gemini" in model_override.lower():
-        return "gemini"
+    if model_override:
+        m = model_override.lower()
+        if "gemini" in m or "imagen" in m:
+            return "gemini"
     return get_provider()
 
 
