@@ -372,7 +372,8 @@ class APIKey(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime)
 
-# Key format: sk_live_XXXXXXXXXXXXXXXXXXXXXXXX
+# Key format: <prefix>_<random_64_chars>
+# Example prefix: "bai_live" or "bai_test"
 # Only shown ONCE at creation time
 # Stored as SHA-256 hash
 ```
